@@ -1,0 +1,12 @@
+[package]
+name = "lut"
+version = "0.1.0"
+edition = "2021"
+authors = ["Jason Weiss <jason.awz2005@icloud.com>"]
+description = "A fun programming language called 'lut'"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3"
+tempfile = "3.2"
+cc = "1.0"

@@ -1,0 +1,4 @@
+@@ Hey!
+
+greeting : -text 'Hello from lut!'
+-print $greeting

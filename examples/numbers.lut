@@ -1,0 +1,12 @@
+@@ This program demonstrates numeric operations in lut
+
+@@ Define some numbers
+num1 : -number 42
+num2 : -number 7
+
+@@ Print the numbers
+-print $num1, -asc 32, $num2
+
+@@ In a future version we could add operations like:
+@@ result : -add $num1, $num2
+@@ -print -text 'Result of addition: ', $result

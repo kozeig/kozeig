@@ -1,0 +1,43 @@
+@@ This program demonstrates arithmetic operations in lut
+
+@@ Define some numbers
+a : -number 42
+b : -number 7
+
+@@ Addition
+result_add : -add $a, $b
+addition : -text 'Addition: '
+plus : -text ' + '
+equals : -text ' = '
+-print $addition, $a, $plus, $b, $equals, $result_add
+
+@@ Subtraction
+result_sub : -sub $a, $b
+subtraction : -text 'Subtraction: '
+minus : -text ' - '
+-print $subtraction, $a, $minus, $b, $equals, $result_sub
+
+@@ Multiplication
+result_mul : -mul $a, $b
+multiplication : -text 'Multiplication: '
+times : -text ' * '
+-print $multiplication, $a, $times, $b, $equals, $result_mul
+
+@@ Division
+result_div : -div $a, $b
+division : -text 'Division: '
+divide : -text ' / '
+-print $division, $a, $divide, $b, $equals, $result_div
+
+@@ Modulo
+result_mod : -mod $a, $b
+modulo : -text 'Modulo: '
+mod_op : -text ' % '
+-print $modulo, $a, $mod_op, $b, $equals, $result_mod
+
+@@ Compound expressions
+compound : -add $a, -mul $b, 2
+compound_text : -text 'Compound: '
+lparen : -text ' + ('
+rparen : -text ' * 2) = '
+-print $compound_text, $a, $lparen, $b, $rparen, $compound
