@@ -1,0 +1,398 @@
+@@ goal.lut - Example of what a full-featured Lüt language could look like
+@@ This is a todo list application that demonstrates various language features
+
+@@ Import statements for modules
+@@ Takes some inspiration from langs like Go
+-import 'std/io'        @@ Standard I/O utilities
+-import 'std/datetime'  @@ Date and time utilities
+-import 'std/fs'        @@ File system operations
+-import 'std/json'      @@ JSON parsing and serialization
+
+@@ Constants declaration
+APP_NAME : -const -text 'Todo Manager'
+VERSION : -const -number 1.0
+DATA_FILE : -const -text 'todos.json'
+@@ or
+-const APP_NAME: -text = 'Todo Manager'
+-const VERSION: -number = 1.0
+-const DATA_FILE: -text = 'todos.json'
+
+@@ Type definitions using structs
+-struct Todo
+  id : -number           @@ Todo ID
+  title : -text          @@ Todo title
+  description : -text    @@ Todo description
+  created : -datetime    @@ Creation timestamp
+  due : -datetime?       @@ Optional due date
+  completed : -bool      @@ Completion status
+  tags : -list<-text>    @@ List of tags
+-end
+
+@@ Class definition with methods
+-class TodoManager
+  todos : -list<Todo>    @@ List of todos
+  next_id : -number      @@ Next available ID
+
+  @@ Constructor
+  -init
+    self.todos : -list []
+    self.next_id : -number 1
+    
+    @@ Try to load existing todos
+    -if -fs.exists $DATA_FILE
+      -try
+        file_content : -fs.read_file $DATA_FILE
+        loaded_data : -json.parse $file_content
+        self.todos : -json.to_todos $loaded_data
+        
+        @@ Find the highest ID to set next_id
+        max_id : -number 0
+        -for todo in $self.todos
+          -if -gt $todo.id, $max_id
+            max_id : -set $todo.id
+          -end
+        -end
+        self.next_id : -add $max_id, -number 1
+      -catch error
+        -io.println -text 'Error loading todos: ', $error
+        self.todos : -list []
+      -end
+    -end
+  -end
+  
+  @@ Method to add a new todo
+  -method add_todo $title, $description, $tags, $due_date?
+    new_todo : -new Todo
+    new_todo.id : -set $self.next_id
+    new_todo.title : -set $title
+    new_todo.description : -set $description
+    new_todo.created : -datetime.now
+    new_todo.completed : -bool false
+    
+    @@ Handle optional due date
+    -if $due_date
+      new_todo.due : -set $due_date
+    -end
+    
+    @@ Handle tags
+    -if $tags
+      new_todo.tags : -set $tags
+    -else
+      new_todo.tags : -list []
+    -end
+    
+    @@ Add the todo to the list
+    self.todos : -append $self.todos, $new_todo
+    self.next_id : -add $self.next_id, -number 1
+    
+    @@ Save todos to file
+    -self.save
+    
+    -return $new_todo.id
+  -end
+  
+  @@ Method to mark a todo as complete
+  -method complete_todo $id
+    found : -bool false
+    
+    @@ Find and update the todo
+    -for i, todo in -enumerate $self.todos
+      -if -eq $todo.id, $id
+        found : -bool true
+        self.todos[i].completed : -bool true
+        -break
+      -end
+    -end
+    
+    @@ If found, save changes
+    -if $found
+      -self.save
+      -return -bool true
+    -else
+      -return -bool false
+    -end
+  -end
+  
+  @@ Method to delete a todo
+  -method delete_todo $id
+    initial_length : -len $self.todos
+    self.todos : -filter $self.todos, -func $todo -> -ne $todo.id, $id
+    
+    @@ Check if any todo was removed
+    -if -ne -len $self.todos, $initial_length
+      -self.save
+      -return -bool true
+    -else
+      -return -bool false
+    -end
+  -end
+  
+  @@ Method to list todos with optional filtering
+  -method list_todos $completed?
+    filtered_todos : -list []
+    
+    @@ Apply filter if specified
+    -if -is_defined $completed
+      filtered_todos : -filter $self.todos, -func $todo -> -eq $todo.completed, $completed
+    -else
+      filtered_todos : -set $self.todos
+    -end
+    
+    @@ Return the filtered list
+    -return $filtered_todos
+  -end
+  
+  @@ Method to find todos by tag
+  -method find_by_tag $tag
+    matching_todos : -filter $self.todos, -func $todo -> -contains $todo.tags, $tag
+    -return $matching_todos
+  -end
+  
+  @@ Private method to save todos to file
+  -private method save
+    json_data : -json.from_todos $self.todos
+    serialized : -json.stringify $json_data, -bool true  @@ Pretty print
+    -fs.write_file $DATA_FILE, $serialized
+  -end
+-end
+
+@@ Helper functions for formatting
+-func format_todo $todo
+  status : -if $todo.completed -then -text '[✓]' -else -text '[ ]'
+  
+  @@ Format the created date
+  created_str : -datetime.format $todo.created, -text 'YYYY-MM-DD HH:mm'
+  
+  @@ Format the due date if it exists
+  due_str : -text ''
+  -if $todo.due
+    due_str : -text ' (Due: ', -datetime.format $todo.due, -text 'YYYY-MM-DD HH:mm', -text ')'
+  -end
+  
+  @@ Format tags
+  tags_str : -text ''
+  -if -and -len $todo.tags, -gt -len $todo.tags, -number 0
+    tags_str : -text ' [', -join $todo.tags, -text ', ', -text ']'
+  -end
+  
+  @@ Combine all parts
+  result : -add $status, -text ' #', $todo.id, -text ': ', $todo.title, 
+                $due_str, $tags_str, -text '\n    ', $todo.description,
+                -text '\n    Created: ', $created_str
+  
+  -return $result
+-end
+
+@@ Main function
+-func main
+  @@ Print welcome message
+  -io.println -text '=== ', $APP_NAME, -text ' v', $VERSION, -text ' ==='
+  
+  @@ Create todo manager
+  manager : -new TodoManager
+  
+  @@ Main application loop
+  running : -bool true
+  -while $running
+    @@ Display menu
+    -io.println -text '\nOptions:'
+    -io.println -text '1. List all todos'
+    -io.println -text '2. List pending todos'
+    -io.println -text '3. List completed todos'
+    -io.println -text '4. Add new todo'
+    -io.println -text '5. Complete a todo'
+    -io.println -text '6. Delete a todo'
+    -io.println -text '7. Search by tag'
+    -io.println -text '0. Exit'
+    
+    @@ Get user choice
+    -io.print -text '\nEnter your choice: '
+    choice : -io.read_line
+    choice_num : -number $choice
+    
+    @@ Process user choice using switch statement
+    -switch $choice_num
+      -case 0
+        running : -bool false
+        -io.println -text 'Goodbye!'
+      
+      -case 1
+        -io.println -text '\nAll Todos:'
+        todos : -call $manager.list_todos
+        -display_todos $todos
+      
+      -case 2
+        -io.println -text '\nPending Todos:'
+        todos : -call $manager.list_todos -bool false
+        -display_todos $todos
+      
+      -case 3
+        -io.println -text '\nCompleted Todos:'
+        todos : -call $manager.list_todos -bool true
+        -display_todos $todos
+      
+      -case 4
+        -add_todo_flow $manager
+      
+      -case 5
+        -complete_todo_flow $manager
+      
+      -case 6
+        -delete_todo_flow $manager
+      
+      -case 7
+        -search_by_tag_flow $manager
+      
+      -default
+        -io.println -text 'Invalid choice, please try again.'
+    -end
+  -end
+-end
+
+@@ Helper functions for UI flows
+-func display_todos $todos
+  -if -eq -len $todos, -number 0
+    -io.println -text 'No todos found.'
+    -return
+  -end
+  
+  -for todo in $todos
+    formatted : -format_todo $todo
+    -io.println $formatted
+    -io.println -text '------------------------'
+  -end
+-end
+
+-func add_todo_flow $manager
+  @@ Get todo details from user
+  -io.print -text 'Enter title: '
+  title : -io.read_line
+  
+  -io.print -text 'Enter description: '
+  description : -io.read_line
+  
+  -io.print -text 'Enter tags (comma separated, leave blank for none): '
+  tags_input : -io.read_line
+  
+  @@ Process tags
+  tags : -list []
+  -if -ne $tags_input, -text ''
+    tags_split : -split $tags_input, -text ','
+    -for tag in $tags_split
+      clean_tag : -trim $tag
+      -if -ne $clean_tag, -text ''
+        tags : -append $tags, $clean_tag
+      -end
+    -end
+  -end
+  
+  @@ Ask for due date
+  -io.print -text 'Add due date? (y/n): '
+  due_response : -io.read_line
+  
+  due_date : -none
+  -if -or -eq $due_response, -text 'y', -eq $due_response, -text 'Y'
+    valid_date : -bool false
+    -while -not $valid_date
+      -io.print -text 'Enter due date (YYYY-MM-DD HH:mm): '
+      date_input : -io.read_line
+      
+      -try
+        due_date : -datetime.parse $date_input, -text 'YYYY-MM-DD HH:mm'
+        valid_date : -bool true
+      -catch error
+        -io.println -text 'Invalid date format. Please try again.'
+      -end
+    -end
+  -end
+  
+  @@ Add todo and confirm
+  todo_id : -call $manager.add_todo $title, $description, $tags, $due_date
+  -io.println -text 'Todo added with ID: ', $todo_id
+-end
+
+-func complete_todo_flow $manager
+  @@ Get list of pending todos
+  pending_todos : -call $manager.list_todos -bool false
+  
+  -if -eq -len $pending_todos, -number 0
+    -io.println -text 'No pending todos to complete.'
+    -return
+  -end
+  
+  @@ Display pending todos
+  -io.println -text '\nPending Todos:'
+  -display_todos $pending_todos
+  
+  @@ Ask for ID to complete
+  -io.print -text 'Enter ID of todo to mark as completed: '
+  id_input : -io.read_line
+  
+  -try
+    id : -number $id_input
+    result : -call $manager.complete_todo $id
+    
+    -if $result
+      -io.println -text 'Todo marked as completed.'
+    -else
+      -io.println -text 'Todo not found.'
+    -end
+  -catch error
+    -io.println -text 'Invalid ID. Please enter a number.'
+  -end
+-end
+
+-func delete_todo_flow $manager
+  @@ Display all todos
+  todos : -call $manager.list_todos
+  
+  -if -eq -len $todos, -number 0
+    -io.println -text 'No todos to delete.'
+    -return
+  -end
+  
+  @@ Display todos
+  -io.println -text '\nAll Todos:'
+  -display_todos $todos
+  
+  @@ Ask for ID to delete
+  -io.print -text 'Enter ID of todo to delete: '
+  id_input : -io.read_line
+  
+  -try
+    id : -number $id_input
+    
+    @@ Confirm deletion
+    -io.print -text 'Are you sure you want to delete this todo? (y/n): '
+    confirm : -io.read_line
+    
+    -if -or -eq $confirm, -text 'y', -eq $confirm, -text 'Y'
+      result : -call $manager.delete_todo $id
+      
+      -if $result
+        -io.println -text 'Todo deleted.'
+      -else
+        -io.println -text 'Todo not found.'
+      -end
+    -else
+      -io.println -text 'Deletion cancelled.'
+    -end
+  -catch error
+    -io.println -text 'Invalid ID. Please enter a number.'
+  -end
+-end
+
+-func search_by_tag_flow $manager
+  @@ Ask for tag to search
+  -io.print -text 'Enter tag to search for: '
+  tag : -io.read_line
+  
+  @@ Search and display results
+  matching_todos : -call $manager.find_by_tag $tag
+  
+  -io.println -text '\nTodos with tag "', $tag, -text '":'
+  -display_todos $matching_todos
+-end
+
+@@ Call the main function to start the application
+-call main
