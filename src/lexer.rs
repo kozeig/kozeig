@@ -13,6 +13,30 @@ pub enum TokenType {
     Comma,           // ','
     Semicolon,       // ';'
     
+    // Arithmetic operators
+    Plus,            // '+'
+    Minus,           // '-'
+    Star,            // '*'
+    Slash,           // '/'
+    Percent,         // '%'
+    
+    // Comparison operators
+    Equal,           // '=='
+    NotEqual,        // '!='
+    Greater,         // '>'
+    Less,            // '<'
+    GreaterEqual,    // '>='
+    LessEqual,       // '<='
+    
+    // Logical operators
+    And,             // '&&'
+    Or,              // '||'
+    Not,             // '!'
+    
+    // Grouping
+    LeftParen,       // '('
+    RightParen,      // ')'
+    
     // Comments and whitespace
     Comment,         // '@@'
     Newline,
@@ -101,12 +125,66 @@ impl Lexer {
                 }
             },
             '-' => {
-                // Command
-                while self.peek().is_alphabetic() && !self.is_at_end() {
-                    self.advance();
+                // Check if this is a command (starts with a letter) or a unary minus
+                if self.peek().is_alphabetic() {
+                    // Command
+                    while self.peek().is_alphabetic() && !self.is_at_end() {
+                        self.advance();
+                    }
+                    let command = self.source[self.start..self.current].iter().collect();
+                    self.tokens.push(Token::new(TokenType::Command, command, self.line));
+                } else {
+                    // Unary minus or minus operator
+                    self.tokens.push(Token::new(TokenType::Minus, "-".to_string(), self.line));
                 }
-                let command = self.source[self.start..self.current].iter().collect();
-                self.tokens.push(Token::new(TokenType::Command, command, self.line));
+            },
+            '+' => self.tokens.push(Token::new(TokenType::Plus, "+".to_string(), self.line)),
+            '*' => self.tokens.push(Token::new(TokenType::Star, "*".to_string(), self.line)),
+            '/' => self.tokens.push(Token::new(TokenType::Slash, "/".to_string(), self.line)),
+            '%' => self.tokens.push(Token::new(TokenType::Percent, "%".to_string(), self.line)),
+            '(' => self.tokens.push(Token::new(TokenType::LeftParen, "(".to_string(), self.line)),
+            ')' => self.tokens.push(Token::new(TokenType::RightParen, ")".to_string(), self.line)),
+            '=' => {
+                if self.match_char('=') {
+                    self.tokens.push(Token::new(TokenType::Equal, "==".to_string(), self.line));
+                } else {
+                    return Err(format!("Unexpected character '=' at line {}. Did you mean '=='?", self.line));
+                }
+            },
+            '!' => {
+                if self.match_char('=') {
+                    self.tokens.push(Token::new(TokenType::NotEqual, "!=".to_string(), self.line));
+                } else {
+                    self.tokens.push(Token::new(TokenType::Not, "!".to_string(), self.line));
+                }
+            },
+            '>' => {
+                if self.match_char('=') {
+                    self.tokens.push(Token::new(TokenType::GreaterEqual, ">=".to_string(), self.line));
+                } else {
+                    self.tokens.push(Token::new(TokenType::Greater, ">".to_string(), self.line));
+                }
+            },
+            '<' => {
+                if self.match_char('=') {
+                    self.tokens.push(Token::new(TokenType::LessEqual, "<=".to_string(), self.line));
+                } else {
+                    self.tokens.push(Token::new(TokenType::Less, "<".to_string(), self.line));
+                }
+            },
+            '&' => {
+                if self.match_char('&') {
+                    self.tokens.push(Token::new(TokenType::And, "&&".to_string(), self.line));
+                } else {
+                    return Err(format!("Unexpected character '&' at line {}. Did you mean '&&'?", self.line));
+                }
+            },
+            '|' => {
+                if self.match_char('|') {
+                    self.tokens.push(Token::new(TokenType::Or, "||".to_string(), self.line));
+                } else {
+                    return Err(format!("Unexpected character '|' at line {}. Did you mean '||'?", self.line));
+                }
             },
             _ => {
                 if c.is_alphabetic() {

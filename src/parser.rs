@@ -9,6 +9,19 @@ pub enum Expr {
         name: String,
         args: Vec<Expr>,
     },
+    // New operator expressions
+    Binary {
+        left: Box<Expr>,
+        operator: Token,
+        right: Box<Expr>,
+    },
+    Unary {
+        operator: Token,
+        right: Box<Expr>,
+    },
+    Grouping {
+        expression: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +143,124 @@ impl Parser {
     }
     
     fn expression(&mut self) -> Result<Expr, String> {
+        self.logical_or()
+    }
+    
+    fn logical_or(&mut self) -> Result<Expr, String> {
+        let mut expr = self.logical_and()?;
+        
+        while self.match_token(TokenType::Or) {
+            let operator = self.previous().clone();
+            let right = self.logical_and()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn logical_and(&mut self) -> Result<Expr, String> {
+        let mut expr = self.equality()?;
+        
+        while self.match_token(TokenType::And) {
+            let operator = self.previous().clone();
+            let right = self.equality()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn equality(&mut self) -> Result<Expr, String> {
+        let mut expr = self.comparison()?;
+        
+        while self.match_token(TokenType::Equal) || self.match_token(TokenType::NotEqual) {
+            let operator = self.previous().clone();
+            let right = self.comparison()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn comparison(&mut self) -> Result<Expr, String> {
+        let mut expr = self.term()?;
+        
+        while self.match_token(TokenType::Greater) || 
+              self.match_token(TokenType::GreaterEqual) || 
+              self.match_token(TokenType::Less) || 
+              self.match_token(TokenType::LessEqual) {
+            let operator = self.previous().clone();
+            let right = self.term()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn term(&mut self) -> Result<Expr, String> {
+        let mut expr = self.factor()?;
+        
+        while self.match_token(TokenType::Plus) || self.match_token(TokenType::Minus) {
+            let operator = self.previous().clone();
+            let right = self.factor()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn factor(&mut self) -> Result<Expr, String> {
+        let mut expr = self.unary()?;
+        
+        while self.match_token(TokenType::Star) || 
+              self.match_token(TokenType::Slash) || 
+              self.match_token(TokenType::Percent) {
+            let operator = self.previous().clone();
+            let right = self.unary()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                operator,
+                right: Box::new(right),
+            };
+        }
+        
+        Ok(expr)
+    }
+    
+    fn unary(&mut self) -> Result<Expr, String> {
+        if self.match_token(TokenType::Not) || self.match_token(TokenType::Minus) {
+            let operator = self.previous().clone();
+            let right = self.unary()?;
+            return Ok(Expr::Unary {
+                operator,
+                right: Box::new(right),
+            });
+        }
+        
+        self.primary()
+    }
+    
+    fn primary(&mut self) -> Result<Expr, String> {
         if self.match_token(TokenType::Variable) {
             let name = self.previous().lexeme.clone();
             return Ok(Expr::VariableRef(name));
@@ -143,6 +274,14 @@ impl Parser {
         if self.match_token(TokenType::Text) {
             let value = self.previous().lexeme.clone();
             return Ok(Expr::TextLiteral(value));
+        }
+        
+        if self.match_token(TokenType::LeftParen) {
+            let expr = self.expression()?;
+            self.consume(TokenType::RightParen, "Expect ')' after expression")?;
+            return Ok(Expr::Grouping {
+                expression: Box::new(expr),
+            });
         }
         
         if self.match_token(TokenType::Command) {

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::lexer::Lexer;
+use crate::lexer::{Lexer, TokenType};
 use crate::parser::{Parser, Stmt, Expr};
 
 pub struct Interpreter {
@@ -112,6 +112,186 @@ impl Interpreter {
             }
             Expr::NumberLiteral(value) => Ok(Value::Number(value)),
             Expr::TextLiteral(value) => Ok(Value::Text(value)),
+            Expr::Grouping { expression } => {
+                self.evaluate(*expression)
+            }
+            Expr::Unary { operator, right } => {
+                let right = self.evaluate(*right)?;
+                
+                match operator.token_type {
+                    TokenType::Minus => {
+                        match right {
+                            Value::Number(n) => Ok(Value::Number(-n)),
+                            Value::Text(s) => {
+                                match s.parse::<i64>() {
+                                    Ok(n) => Ok(Value::Number(-n)),
+                                    Err(_) => Err(format!("Cannot negate text value: {}", s)),
+                                }
+                            }
+                            _ => Err("Cannot negate non-numeric value".to_string()),
+                        }
+                    }
+                    TokenType::Not => {
+                        match right {
+                            Value::Number(n) => Ok(Value::Number(if n == 0 { 1 } else { 0 })),
+                            Value::Text(s) => {
+                                Ok(Value::Number(if s.is_empty() { 1 } else { 0 }))
+                            }
+                            _ => Err("Cannot apply logical not to non-boolean value".to_string()),
+                        }
+                    }
+                    _ => Err(format!("Invalid unary operator: {:?}", operator.token_type)),
+                }
+            }
+            Expr::Binary { left, operator, right } => {
+                let left = self.evaluate(*left)?;
+                let right = self.evaluate(*right)?;
+                
+                match operator.token_type {
+                    // Arithmetic operators
+                    TokenType::Plus => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(n1 + n2)),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Text(s1 + &s2)),
+                            (Value::Text(s), Value::Number(n)) => Ok(Value::Text(s + &n.to_string())),
+                            (Value::Number(n), Value::Text(s)) => Ok(Value::Text(n.to_string() + &s)),
+                            _ => Err("Cannot add incompatible types".to_string()),
+                        }
+                    }
+                    TokenType::Minus => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(n1 - n2)),
+                            (Value::Text(s1), Value::Number(n2)) => {
+                                match s1.parse::<i64>() {
+                                    Ok(n1) => Ok(Value::Number(n1 - n2)),
+                                    Err(_) => Err(format!("Cannot subtract from text: {}", s1)),
+                                }
+                            }
+                            (Value::Number(n1), Value::Text(s2)) => {
+                                match s2.parse::<i64>() {
+                                    Ok(n2) => Ok(Value::Number(n1 - n2)),
+                                    Err(_) => Err(format!("Cannot subtract text: {}", s2)),
+                                }
+                            }
+                            _ => Err("Cannot subtract incompatible types".to_string()),
+                        }
+                    }
+                    TokenType::Star => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(n1 * n2)),
+                            _ => Err("Cannot multiply non-numeric values".to_string()),
+                        }
+                    }
+                    TokenType::Slash => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => {
+                                if n2 == 0 {
+                                    return Err("Division by zero".to_string());
+                                }
+                                Ok(Value::Number(n1 / n2))
+                            }
+                            _ => Err("Cannot divide non-numeric values".to_string()),
+                        }
+                    }
+                    TokenType::Percent => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => {
+                                if n2 == 0 {
+                                    return Err("Modulo by zero".to_string());
+                                }
+                                Ok(Value::Number(n1 % n2))
+                            }
+                            _ => Err("Cannot perform modulo on non-numeric values".to_string()),
+                        }
+                    }
+                    
+                    // Comparison operators
+                    TokenType::Equal => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 == n2 { 1 } else { 0 })),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 == s2 { 1 } else { 0 })),
+                            _ => Ok(Value::Number(0)), // Different types are never equal
+                        }
+                    }
+                    TokenType::NotEqual => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 != n2 { 1 } else { 0 })),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 != s2 { 1 } else { 0 })),
+                            _ => Ok(Value::Number(1)), // Different types are always not equal
+                        }
+                    }
+                    TokenType::Greater => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 > n2 { 1 } else { 0 })),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 > s2 { 1 } else { 0 })),
+                            _ => Err("Cannot compare different types".to_string()),
+                        }
+                    }
+                    TokenType::GreaterEqual => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 >= n2 { 1 } else { 0 })),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 >= s2 { 1 } else { 0 })),
+                            _ => Err("Cannot compare different types".to_string()),
+                        }
+                    }
+                    TokenType::Less => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 < n2 { 1 } else { 0 })),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 < s2 { 1 } else { 0 })),
+                            _ => Err("Cannot compare different types".to_string()),
+                        }
+                    }
+                    TokenType::LessEqual => {
+                        match (left, right) {
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 <= n2 { 1 } else { 0 })),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 <= s2 { 1 } else { 0 })),
+                            _ => Err("Cannot compare different types".to_string()),
+                        }
+                    }
+                    
+                    // Logical operators
+                    TokenType::And => {
+                        let left_bool = match left {
+                            Value::Number(n) => n != 0,
+                            Value::Text(s) => !s.is_empty(),
+                            _ => false,
+                        };
+                        
+                        if !left_bool {
+                            return Ok(Value::Number(0)); // Short-circuit evaluation
+                        }
+                        
+                        let right_bool = match right {
+                            Value::Number(n) => n != 0,
+                            Value::Text(s) => !s.is_empty(),
+                            _ => false,
+                        };
+                        
+                        Ok(Value::Number(if right_bool { 1 } else { 0 }))
+                    }
+                    TokenType::Or => {
+                        let left_bool = match left {
+                            Value::Number(n) => n != 0,
+                            Value::Text(s) => !s.is_empty(),
+                            _ => false,
+                        };
+                        
+                        if left_bool {
+                            return Ok(Value::Number(1)); // Short-circuit evaluation
+                        }
+                        
+                        let right_bool = match right {
+                            Value::Number(n) => n != 0,
+                            Value::Text(s) => !s.is_empty(),
+                            _ => false,
+                        };
+                        
+                        Ok(Value::Number(if right_bool { 1 } else { 0 }))
+                    }
+                    
+                    _ => Err(format!("Invalid binary operator: {:?}", operator.token_type)),
+                }
+            }
             Expr::Command { name, args } => {
                 match name.as_str() {
                     "-number" => {
