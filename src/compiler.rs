@@ -8,6 +8,7 @@ use std::path::Path;
 pub enum Instruction {
     LoadNumber(i64),
     LoadText(String),
+    LoadBoolean(bool),
     LoadVariable(String),
     StoreVariable(String),
     Add,
@@ -51,46 +52,50 @@ impl Instruction {
                 bytes.extend_from_slice(&len.to_le_bytes());
                 bytes.extend_from_slice(text_bytes);
             }
+            Instruction::LoadBoolean(b) => {
+                bytes.push(2); // Opcode 2 = LoadBoolean
+                bytes.push(if *b { 1 } else { 0 });
+            }
             Instruction::LoadVariable(name) => {
-                bytes.push(2); // Opcode 2 = LoadVariable
+                bytes.push(3); // Opcode 3 = LoadVariable
                 let name_bytes = name.as_bytes();
                 let len = name_bytes.len() as u32;
                 bytes.extend_from_slice(&len.to_le_bytes());
                 bytes.extend_from_slice(name_bytes);
             }
             Instruction::StoreVariable(name) => {
-                bytes.push(3); // Opcode 3 = StoreVariable
+                bytes.push(4); // Opcode 4 = StoreVariable
                 let name_bytes = name.as_bytes();
                 let len = name_bytes.len() as u32;
                 bytes.extend_from_slice(&len.to_le_bytes());
                 bytes.extend_from_slice(name_bytes);
             }
-            Instruction::Add => bytes.push(4), // Opcode 4 = Add
-            Instruction::Subtract => bytes.push(5), // Opcode 5 = Subtract
-            Instruction::Multiply => bytes.push(6), // Opcode 6 = Multiply
-            Instruction::Divide => bytes.push(7), // Opcode 7 = Divide
-            Instruction::Modulo => bytes.push(8), // Opcode 8 = Modulo
-            Instruction::PrintValue => bytes.push(9), // Opcode 9 = PrintValue
-            Instruction::PrintNewline => bytes.push(10), // Opcode 10 = PrintNewline
-            Instruction::ToAscii => bytes.push(11), // Opcode 11 = ToAscii
-            Instruction::NoOp => bytes.push(12), // Opcode 12 = NoOp
+            Instruction::Add => bytes.push(5), // Opcode 5 = Add
+            Instruction::Subtract => bytes.push(6), // Opcode 6 = Subtract
+            Instruction::Multiply => bytes.push(7), // Opcode 7 = Multiply
+            Instruction::Divide => bytes.push(8), // Opcode 8 = Divide
+            Instruction::Modulo => bytes.push(9), // Opcode 9 = Modulo
+            Instruction::PrintValue => bytes.push(10), // Opcode 10 = PrintValue
+            Instruction::PrintNewline => bytes.push(11), // Opcode 11 = PrintNewline
+            Instruction::ToAscii => bytes.push(12), // Opcode 12 = ToAscii
+            Instruction::NoOp => bytes.push(13), // Opcode 13 = NoOp
 
             // Comparison operators
-            Instruction::Equal => bytes.push(13), // Opcode 13 = Equal
-            Instruction::NotEqual => bytes.push(14), // Opcode 14 = NotEqual
-            Instruction::Greater => bytes.push(15), // Opcode 15 = Greater
-            Instruction::GreaterEqual => bytes.push(16), // Opcode 16 = GreaterEqual
-            Instruction::Less => bytes.push(17),  // Opcode 17 = Less
-            Instruction::LessEqual => bytes.push(18), // Opcode 18 = LessEqual
+            Instruction::Equal => bytes.push(14), // Opcode 14 = Equal
+            Instruction::NotEqual => bytes.push(15), // Opcode 15 = NotEqual
+            Instruction::Greater => bytes.push(16), // Opcode 16 = Greater
+            Instruction::GreaterEqual => bytes.push(17), // Opcode 17 = GreaterEqual
+            Instruction::Less => bytes.push(18),  // Opcode 18 = Less
+            Instruction::LessEqual => bytes.push(19), // Opcode 19 = LessEqual
 
             // Logical operators
-            Instruction::And => bytes.push(19), // Opcode 19 = And
-            Instruction::Or => bytes.push(20),  // Opcode 20 = Or
-            Instruction::Not => bytes.push(21), // Opcode 21 = Not
+            Instruction::And => bytes.push(20), // Opcode 20 = And
+            Instruction::Or => bytes.push(21),  // Opcode 21 = Or
+            Instruction::Not => bytes.push(22), // Opcode 22 = Not
 
             // Grouping
-            Instruction::GroupBegin => bytes.push(22), // Opcode 22 = GroupBegin
-            Instruction::GroupEnd => bytes.push(23),   // Opcode 23 = GroupEnd
+            Instruction::GroupBegin => bytes.push(23), // Opcode 23 = GroupBegin
+            Instruction::GroupEnd => bytes.push(24),   // Opcode 24 = GroupEnd
         }
         bytes
     }
@@ -192,6 +197,9 @@ impl BytecodeCompiler {
             Expr::TextLiteral(value) => {
                 self.instructions.push(Instruction::LoadText(value));
             }
+            Expr::BooleanLiteral(value) => {
+                self.instructions.push(Instruction::LoadBoolean(value));
+            }
             Expr::Grouping { expression } => {
                 self.instructions.push(Instruction::GroupBegin);
                 self.compile_expression(*expression)?;
@@ -269,6 +277,14 @@ impl BytecodeCompiler {
                         // Just compile the expression (converts to text implicitly)
                         self.compile_expression(args[0].clone())?;
                     }
+                    "-bool" => {
+                        if args.len() != 1 {
+                            return Err("Boolean command expects one argument".to_string());
+                        }
+
+                        // Just compile the expression (it will be treated as boolean)
+                        self.compile_expression(args[0].clone())?;
+                    }
                     "-asc" => {
                         if args.len() != 1 {
                             return Err("Asc command expects one argument".to_string());
@@ -297,6 +313,7 @@ impl std::fmt::Display for Instruction {
                 "{{\"op\":\"load_text\",\"value\":\"{}\"}}",
                 s.replace("\"", "\\\"")
             ),
+            Instruction::LoadBoolean(b) => write!(f, "{{\"op\":\"load_boolean\",\"value\":{}}}", if *b { "true" } else { "false" }),
             Instruction::LoadVariable(name) => {
                 write!(f, "{{\"op\":\"load_variable\",\"name\":\"{}\"}}", name)
             }
@@ -396,7 +413,8 @@ pub fn compile(source: &str, file_path: &str) -> Result<(), String> {
 // val types
 typedef enum {{
     NUMBER,
-    TEXT
+    TEXT,
+    BOOLEAN
 }} ValueType;
 
 // val struct
@@ -405,6 +423,7 @@ typedef struct {{
     union {{
         int64_t number;
         char* text;
+        int boolean;  // Using int (0 or 1) to represent boolean values
     }} data;
 }} Value;
 
@@ -412,6 +431,7 @@ typedef struct {{
 typedef enum {{
     LOAD_NUMBER,
     LOAD_TEXT,
+    LOAD_BOOLEAN,
     LOAD_VARIABLE,
     STORE_VARIABLE,
     ADD,
@@ -544,25 +564,43 @@ Value create_number_value(int64_t number) {{
     return value;
 }}
 
-// free resources (a tad buggy right now me thinks)
+// create boolean val
+Value create_boolean_value(int boolean) {{
+    Value value;
+    value.type = BOOLEAN;
+    value.data.boolean = boolean ? 1 : 0;
+    return value;
+}}
+
+// Properly cleanup memory resources
 void cleanup_environment(Environment* env) {{
+    if (env == NULL) return;
+
     // Free variables
-    for (size_t i = 0; i < env->variable_count; i++) {{
-        free(env->variables[i].name);
-        if (env->variables[i].value.type == TEXT && env->variables[i].value.data.text != NULL) {{
-            free(env->variables[i].value.data.text);
+    if (env->variables != NULL) {{
+        for (size_t i = 0; i < env->variable_count; i++) {{
+            if (env->variables[i].name != NULL) {{
+                free(env->variables[i].name);
+            }}
+            
+            if (env->variables[i].value.type == TEXT && env->variables[i].value.data.text != NULL) {{
+                free(env->variables[i].value.data.text);
+            }}
         }}
+        free(env->variables);
     }}
 
-    // Free stack
-    for (size_t i = 0; i < env->stack_size; i++) {{
-        if (env->stack[i].type == TEXT && env->stack[i].data.text != NULL) {{
-            free(env->stack[i].data.text);
+    // Free stack values
+    if (env->stack != NULL) {{
+        for (size_t i = 0; i < env->stack_size; i++) {{
+            if (env->stack[i].type == TEXT && env->stack[i].data.text != NULL) {{
+                free(env->stack[i].data.text);
+            }}
         }}
+        free(env->stack);
     }}
 
-    free(env->variables);
-    free(env->stack);
+    // Free the environment itself
     free(env);
 }}
 
@@ -603,6 +641,13 @@ void run_bytecode(unsigned char* bytecode, size_t size) {{
                 value.type = TEXT;
                 value.data.text = text;
                 push(env, value);
+                break;
+            }}
+
+            case LOAD_BOOLEAN: {{
+                // Read boolean value (0 or 1)
+                int boolean_val = bytecode[ip++];
+                push(env, create_boolean_value(boolean_val));
                 break;
             }}
 
@@ -665,10 +710,39 @@ void run_bytecode(unsigned char* bytecode, size_t size) {{
                 Value right = pop(env);
                 Value left = pop(env);
 
-                int64_t left_val = left.type == NUMBER ? left.data.number :
-                                  (left.type == TEXT ? atoll(left.data.text) : 0);
-                int64_t right_val = right.type == NUMBER ? right.data.number :
-                                   (right.type == TEXT ? atoll(right.data.text) : 0);
+                // Get left value
+                int64_t left_val;
+                if (left.type == NUMBER) {{
+                    left_val = left.data.number;
+                }} else if (left.type == TEXT && left.data.text) {{
+                    // Safely convert text to number
+                    char* endptr = NULL;
+                    left_val = strtoll(left.data.text, &endptr, 10);
+                    // Check if conversion was successful
+                    if (endptr == left.data.text) {{
+                        fprintf(stderr, "Runtime error: Cannot convert '%s' to a number for subtraction\n", left.data.text);
+                        exit(1);
+                    }}
+                }} else {{
+                    left_val = 0;
+                }}
+
+                // Get right value
+                int64_t right_val;
+                if (right.type == NUMBER) {{
+                    right_val = right.data.number;
+                }} else if (right.type == TEXT && right.data.text) {{
+                    // Safely convert text to number
+                    char* endptr = NULL;
+                    right_val = strtoll(right.data.text, &endptr, 10);
+                    // Check if conversion was successful
+                    if (endptr == right.data.text) {{
+                        fprintf(stderr, "Runtime error: Cannot convert '%s' to a number for subtraction\n", right.data.text);
+                        exit(1);
+                    }}
+                }} else {{
+                    right_val = 0;
+                }}
 
                 // Free text values if needed
                 if (left.type == TEXT && left.data.text) free(left.data.text);
@@ -747,6 +821,8 @@ void run_bytecode(unsigned char* bytecode, size_t size) {{
                 }} else if (value.type == TEXT) {{
                     printf("%s", value.data.text);
                     free(value.data.text);
+                }} else if (value.type == BOOLEAN) {{
+                    printf("%s", value.data.boolean ? "true" : "false");
                 }}
 
                 break;

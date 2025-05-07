@@ -7,6 +7,7 @@ pub enum TokenType {
     Ascii,           // ascii code
     Text,            // string literal
     Variable,        // variable reference with '$'
+    Boolean,         // boolean literal (true/false)
     
     // Symbols
     Colon,           // ':'
@@ -206,7 +207,13 @@ impl Lexer {
         }
         
         let text: String = self.source[self.start..self.current].iter().collect();
-        self.tokens.push(Token::new(TokenType::Register, text, self.line));
+        
+        // Check for boolean literals
+        if text == "true" || text == "false" {
+            self.tokens.push(Token::new(TokenType::Boolean, text, self.line));
+        } else {
+            self.tokens.push(Token::new(TokenType::Register, text, self.line));
+        }
     }
     
     fn number(&mut self) {

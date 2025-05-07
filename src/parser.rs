@@ -5,6 +5,7 @@ pub enum Expr {
     VariableRef(String),
     NumberLiteral(i64),
     TextLiteral(String),
+    BooleanLiteral(bool),
     Command {
         name: String,
         args: Vec<Expr>,
@@ -274,6 +275,11 @@ impl Parser {
         if self.match_token(TokenType::Text) {
             let value = self.previous().lexeme.clone();
             return Ok(Expr::TextLiteral(value));
+        }
+        
+        if self.match_token(TokenType::Boolean) {
+            let value = self.previous().lexeme.clone() == "true";
+            return Ok(Expr::BooleanLiteral(value));
         }
         
         if self.match_token(TokenType::LeftParen) {

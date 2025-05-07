@@ -1,0 +1,48 @@
+@@ Boolean Example in Lut
+@@ This demonstrates the new boolean data type
+
+@@ Boolean literals
+t : -bool true
+f : -bool false
+
+@@ Print the values
+-print 'True value: ', $t
+-print 'False value: ', $f
+
+@@ Logical operations
+andResult : -bool $t && $f
+orResult : -bool $t || $f
+notResult : -bool !$t
+
+-print 'AND result (true && false): ', $andResult
+-print 'OR result (true || false): ', $orResult
+-print 'NOT result (!true): ', $notResult
+
+@@ Comparison operations using booleans
+equalResult : -bool $t == $t
+notEqualResult : -bool $t != $f
+
+-print 'Equal result (true == true): ', $equalResult
+-print 'Not equal result (true != false): ', $notEqualResult
+
+@@ Convert between types
+numTrue : -number $t
+numFalse : -number $f
+textTrue : -text $t
+textFalse : -text $f
+
+-print 'Number from true: ', $numTrue
+-print 'Number from false: ', $numFalse
+-print 'Text from true: ', $textTrue
+-print 'Text from false: ', $textFalse
+
+@@ Convert other types to boolean
+boolFromNum : -bool 42
+boolFromZero : -bool 0
+boolFromText : -bool 'hello'
+boolFromEmptyText : -bool ''
+
+-print 'Boolean from number 42: ', $boolFromNum
+-print 'Boolean from number 0: ', $boolFromZero
+-print 'Boolean from text "hello": ', $boolFromText
+-print 'Boolean from empty text: ', $boolFromEmptyText

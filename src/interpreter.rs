@@ -10,6 +10,7 @@ pub struct Interpreter {
 pub enum Value {
     Number(i64),
     Text(String),
+    Boolean(bool),
     Null,
 }
 
@@ -18,6 +19,7 @@ impl std::fmt::Display for Value {
         match self {
             Value::Number(n) => write!(f, "{}", n),
             Value::Text(s) => write!(f, "{}", s),
+            Value::Boolean(b) => write!(f, "{}", if *b { "true" } else { "false" }),
             Value::Null => write!(f, "null"),
         }
     }
@@ -112,6 +114,7 @@ impl Interpreter {
             }
             Expr::NumberLiteral(value) => Ok(Value::Number(value)),
             Expr::TextLiteral(value) => Ok(Value::Text(value)),
+            Expr::BooleanLiteral(value) => Ok(Value::Boolean(value)),
             Expr::Grouping { expression } => {
                 self.evaluate(*expression)
             }
@@ -133,10 +136,9 @@ impl Interpreter {
                     }
                     TokenType::Not => {
                         match right {
-                            Value::Number(n) => Ok(Value::Number(if n == 0 { 1 } else { 0 })),
-                            Value::Text(s) => {
-                                Ok(Value::Number(if s.is_empty() { 1 } else { 0 }))
-                            }
+                            Value::Boolean(b) => Ok(Value::Boolean(!b)),
+                            Value::Number(n) => Ok(Value::Boolean(n == 0)),
+                            Value::Text(s) => Ok(Value::Boolean(s.is_empty())),
                             _ => Err("Cannot apply logical not to non-boolean value".to_string()),
                         }
                     }
@@ -208,43 +210,49 @@ impl Interpreter {
                     // Comparison operators
                     TokenType::Equal => {
                         match (left, right) {
-                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 == n2 { 1 } else { 0 })),
-                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 == s2 { 1 } else { 0 })),
-                            _ => Ok(Value::Number(0)), // Different types are never equal
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Boolean(n1 == n2)),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Boolean(s1 == s2)),
+                            (Value::Boolean(b1), Value::Boolean(b2)) => Ok(Value::Boolean(b1 == b2)),
+                            _ => Ok(Value::Boolean(false)), // Different types are never equal
                         }
                     }
                     TokenType::NotEqual => {
                         match (left, right) {
-                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 != n2 { 1 } else { 0 })),
-                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 != s2 { 1 } else { 0 })),
-                            _ => Ok(Value::Number(1)), // Different types are always not equal
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Boolean(n1 != n2)),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Boolean(s1 != s2)),
+                            (Value::Boolean(b1), Value::Boolean(b2)) => Ok(Value::Boolean(b1 != b2)),
+                            _ => Ok(Value::Boolean(true)), // Different types are always not equal
                         }
                     }
                     TokenType::Greater => {
                         match (left, right) {
-                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 > n2 { 1 } else { 0 })),
-                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 > s2 { 1 } else { 0 })),
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Boolean(n1 > n2)),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Boolean(s1 > s2)),
+                            (Value::Boolean(b1), Value::Boolean(b2)) => Ok(Value::Boolean(b1 && !b2)), // true > false
                             _ => Err("Cannot compare different types".to_string()),
                         }
                     }
                     TokenType::GreaterEqual => {
                         match (left, right) {
-                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 >= n2 { 1 } else { 0 })),
-                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 >= s2 { 1 } else { 0 })),
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Boolean(n1 >= n2)),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Boolean(s1 >= s2)),
+                            (Value::Boolean(b1), Value::Boolean(b2)) => Ok(Value::Boolean(b1 >= b2)), // booleans can be compared
                             _ => Err("Cannot compare different types".to_string()),
                         }
                     }
                     TokenType::Less => {
                         match (left, right) {
-                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 < n2 { 1 } else { 0 })),
-                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 < s2 { 1 } else { 0 })),
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Boolean(n1 < n2)),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Boolean(s1 < s2)),
+                            (Value::Boolean(b1), Value::Boolean(b2)) => Ok(Value::Boolean(!b1 && b2)), // false < true
                             _ => Err("Cannot compare different types".to_string()),
                         }
                     }
                     TokenType::LessEqual => {
                         match (left, right) {
-                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Number(if n1 <= n2 { 1 } else { 0 })),
-                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Number(if s1 <= s2 { 1 } else { 0 })),
+                            (Value::Number(n1), Value::Number(n2)) => Ok(Value::Boolean(n1 <= n2)),
+                            (Value::Text(s1), Value::Text(s2)) => Ok(Value::Boolean(s1 <= s2)),
+                            (Value::Boolean(b1), Value::Boolean(b2)) => Ok(Value::Boolean(b1 <= b2)), // booleans can be compared
                             _ => Err("Cannot compare different types".to_string()),
                         }
                     }
@@ -252,41 +260,45 @@ impl Interpreter {
                     // Logical operators
                     TokenType::And => {
                         let left_bool = match left {
+                            Value::Boolean(b) => b,
                             Value::Number(n) => n != 0,
                             Value::Text(s) => !s.is_empty(),
                             _ => false,
                         };
                         
                         if !left_bool {
-                            return Ok(Value::Number(0)); // Short-circuit evaluation
+                            return Ok(Value::Boolean(false)); // Short-circuit evaluation
                         }
                         
                         let right_bool = match right {
+                            Value::Boolean(b) => b,
                             Value::Number(n) => n != 0,
                             Value::Text(s) => !s.is_empty(),
                             _ => false,
                         };
                         
-                        Ok(Value::Number(if right_bool { 1 } else { 0 }))
+                        Ok(Value::Boolean(right_bool))
                     }
                     TokenType::Or => {
                         let left_bool = match left {
+                            Value::Boolean(b) => b,
                             Value::Number(n) => n != 0,
                             Value::Text(s) => !s.is_empty(),
                             _ => false,
                         };
                         
                         if left_bool {
-                            return Ok(Value::Number(1)); // Short-circuit evaluation
+                            return Ok(Value::Boolean(true)); // Short-circuit evaluation
                         }
                         
                         let right_bool = match right {
+                            Value::Boolean(b) => b,
                             Value::Number(n) => n != 0,
                             Value::Text(s) => !s.is_empty(),
                             _ => false,
                         };
                         
-                        Ok(Value::Number(if right_bool { 1 } else { 0 }))
+                        Ok(Value::Boolean(right_bool))
                     }
                     
                     _ => Err(format!("Invalid binary operator: {:?}", operator.token_type)),
@@ -308,7 +320,8 @@ impl Interpreter {
                                     Err(_) => Err(format!("Cannot convert '{}' to a number", s)),
                                 }
                             }
-                            _ => Err("Expected number or text".to_string()),
+                            Value::Boolean(b) => Ok(Value::Number(if b { 1 } else { 0 })),
+                            _ => Err("Expected number, text or boolean".to_string()),
                         }
                     }
                     "-text" => {
@@ -320,7 +333,29 @@ impl Interpreter {
                         match arg {
                             Value::Text(s) => Ok(Value::Text(s)),
                             Value::Number(n) => Ok(Value::Text(n.to_string())),
-                            _ => Err("Expected text or number".to_string()),
+                            Value::Boolean(b) => Ok(Value::Text(if b { "true" } else { "false" }.to_string())),
+                            _ => Err("Expected text, number or boolean".to_string()),
+                        }
+                    }
+                    "-bool" => {
+                        if args.len() != 1 {
+                            return Err("Boolean command expects one argument".to_string());
+                        }
+                        
+                        let arg = self.evaluate(args[0].clone())?;
+                        match arg {
+                            Value::Boolean(b) => Ok(Value::Boolean(b)),
+                            Value::Number(n) => Ok(Value::Boolean(n != 0)),
+                            Value::Text(s) => {
+                                if s == "true" {
+                                    Ok(Value::Boolean(true))
+                                } else if s == "false" {
+                                    Ok(Value::Boolean(false))
+                                } else {
+                                    Ok(Value::Boolean(!s.is_empty()))
+                                }
+                            }
+                            _ => Err("Expected boolean, number or text".to_string()),
                         }
                     }
                     "-asc" => {
