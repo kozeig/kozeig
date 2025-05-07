@@ -6,6 +6,8 @@
 
 Lüt (pronounced "loot" or "lewt") is a fun, simple programming language with a clean syntax designed for readability and ease of use. It's an experimental language under active development.
 
+> 26.3% of this codebase is AI Generated; includes .md files, examples and source code for Lüt
+
 ## Project Status
 
 ⚠️
