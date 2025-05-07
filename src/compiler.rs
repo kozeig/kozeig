@@ -34,18 +34,21 @@ pub enum Instruction {
     // Grouping
     GroupBegin,
     GroupEnd,
+    // Control flow
+    JumpIfFalse(usize),
+    Jump(usize),
 }
 
 // Simple binary encoding for the instruction
 impl Instruction {
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
-        match self {
+        match *self {
             Instruction::LoadNumber(n) => {
                 bytes.push(0); // Opcode 0 = LoadNumber
                 bytes.extend_from_slice(&n.to_le_bytes());
             }
-            Instruction::LoadText(s) => {
+            Instruction::LoadText(ref s) => {
                 bytes.push(1); // Opcode 1 = LoadText
                 let text_bytes = s.as_bytes();
                 let len = text_bytes.len() as u32;
@@ -54,16 +57,16 @@ impl Instruction {
             }
             Instruction::LoadBoolean(b) => {
                 bytes.push(2); // Opcode 2 = LoadBoolean
-                bytes.push(if *b { 1 } else { 0 });
+                bytes.push(if b { 1 } else { 0 });
             }
-            Instruction::LoadVariable(name) => {
+            Instruction::LoadVariable(ref name) => {
                 bytes.push(3); // Opcode 3 = LoadVariable
                 let name_bytes = name.as_bytes();
                 let len = name_bytes.len() as u32;
                 bytes.extend_from_slice(&len.to_le_bytes());
                 bytes.extend_from_slice(name_bytes);
             }
-            Instruction::StoreVariable(name) => {
+            Instruction::StoreVariable(ref name) => {
                 bytes.push(4); // Opcode 4 = StoreVariable
                 let name_bytes = name.as_bytes();
                 let len = name_bytes.len() as u32;
@@ -96,6 +99,18 @@ impl Instruction {
             // Grouping
             Instruction::GroupBegin => bytes.push(23), // Opcode 23 = GroupBegin
             Instruction::GroupEnd => bytes.push(24),   // Opcode 24 = GroupEnd
+            
+            // Control flow
+            Instruction::JumpIfFalse(offset) => {
+                bytes.push(25); // Opcode 25 = JumpIfFalse
+                let offset_u32 = offset as u32;
+                bytes.extend_from_slice(&offset_u32.to_le_bytes());
+            },
+            Instruction::Jump(offset) => {
+                bytes.push(26); // Opcode 26 = Jump
+                let offset_u32 = offset as u32;
+                bytes.extend_from_slice(&offset_u32.to_le_bytes());
+            }
         }
         bytes
     }
@@ -175,6 +190,47 @@ impl BytecodeCompiler {
             }
             Stmt::Comment(_) => {
                 // Comments are ignored in the compiled output
+            }
+            Stmt::If { condition, then_branch, else_branch } => {
+                // Compile the condition
+                self.compile_expression(condition)?;
+                
+                // Add a placeholder for the jump-if-false instruction
+                let jump_if_false_pos = self.instructions.len();
+                self.instructions.push(Instruction::JumpIfFalse(0)); // 0 is a placeholder
+                
+                // Compile the then branch
+                for stmt in then_branch {
+                    self.compile_statement(stmt)?;
+                }
+                
+                // If there's an else branch, add a jump to skip it after then branch
+                let mut end_jump_pos = None;
+                if else_branch.is_some() {
+                    end_jump_pos = Some(self.instructions.len());
+                    self.instructions.push(Instruction::Jump(0)); // 0 is a placeholder
+                }
+                
+                // Now we know where the else branch starts, so update the jump-if-false instruction
+                let else_pos = self.instructions.len();
+                if let Some(Instruction::JumpIfFalse(_)) = self.instructions.get_mut(jump_if_false_pos) {
+                    self.instructions[jump_if_false_pos] = Instruction::JumpIfFalse(else_pos);
+                }
+                
+                // Compile the else branch if it exists
+                if let Some(else_statements) = else_branch {
+                    for stmt in else_statements {
+                        self.compile_statement(stmt)?;
+                    }
+                }
+                
+                // Now we know where the end of the if statement is, so update the jump instruction
+                let end_pos = self.instructions.len();
+                if let Some(pos) = end_jump_pos {
+                    if let Some(Instruction::Jump(_)) = self.instructions.get_mut(pos) {
+                        self.instructions[pos] = Instruction::Jump(end_pos);
+                    }
+                }
             }
         }
 
@@ -346,6 +402,10 @@ impl std::fmt::Display for Instruction {
             // Grouping
             Instruction::GroupBegin => write!(f, "{{\"op\":\"group_begin\"}}"),
             Instruction::GroupEnd => write!(f, "{{\"op\":\"group_end\"}}"),
+            
+            // Control flow
+            Instruction::JumpIfFalse(offset) => write!(f, "{{\"op\":\"jump_if_false\",\"offset\":{}}}", offset),
+            Instruction::Jump(offset) => write!(f, "{{\"op\":\"jump\",\"offset\":{}}}", offset),
         }
     }
 }
@@ -456,7 +516,10 @@ typedef enum {{
     NOT,
     // Grouping
     GROUP_BEGIN,
-    GROUP_END
+    GROUP_END,
+    // Control Flow
+    JUMP_IF_FALSE,
+    JUMP
 }} InstructionType;
 
 // var storage
@@ -1043,6 +1106,50 @@ void run_bytecode(unsigned char* bytecode, size_t size) {{
             case GROUP_BEGIN:
             case GROUP_END:
                 break;
+                
+            // Control flow
+            case JUMP_IF_FALSE: {{
+                // Read 4-byte offset
+                uint32_t offset = 0;
+                memcpy(&offset, &bytecode[ip], sizeof(uint32_t));
+                ip += sizeof(uint32_t);
+                
+                // Check the condition (0 = false, non-zero = true)
+                Value condition = pop(env);
+                int is_true = 0;
+                
+                if (condition.type == NUMBER) {{
+                    is_true = condition.data.number != 0;
+                }} else if (condition.type == TEXT) {{
+                    is_true = condition.data.text != NULL && strlen(condition.data.text) > 0;
+                }} else if (condition.type == BOOLEAN) {{
+                    is_true = condition.data.boolean != 0;
+                }}
+                
+                // Free text value if needed
+                if (condition.type == TEXT && condition.data.text != NULL) {{
+                    free(condition.data.text);
+                }}
+                
+                // If condition is false, jump to the specified offset
+                if (!is_true) {{
+                    ip = offset;
+                }}
+                
+                break;
+            }}
+            
+            case JUMP: {{
+                // Read 4-byte offset
+                uint32_t offset = 0;
+                memcpy(&offset, &bytecode[ip], sizeof(uint32_t));
+                ip += sizeof(uint32_t);
+                
+                // Jump to the specified offset
+                ip = offset;
+                
+                break;
+            }}
 
             default:
                 fprintf(stderr, "Runtime error: Unknown instruction %d\n", instr_type);

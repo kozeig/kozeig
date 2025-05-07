@@ -11,6 +11,7 @@ pub enum TokenType {
     
     // Symbols
     Colon,           // ':'
+    DoubleColon,     // '::'
     Comma,           // ','
     Semicolon,       // ';'
     
@@ -101,7 +102,14 @@ impl Lexer {
                 self.tokens.push(Token::new(TokenType::Newline, "\n".to_string(), self.line));
                 self.line += 1;
             },
-            ':' => self.tokens.push(Token::new(TokenType::Colon, ":".to_string(), self.line)),
+            ':' => {
+                // Check for double colon ::
+                if self.match_char(':') {
+                    self.tokens.push(Token::new(TokenType::DoubleColon, "::".to_string(), self.line));
+                } else {
+                    self.tokens.push(Token::new(TokenType::Colon, ":".to_string(), self.line));
+                }
+            },
             ',' => self.tokens.push(Token::new(TokenType::Comma, ",".to_string(), self.line)),
             ';' => {
                 // Handle semicolons - check for double semicolon (;;)
@@ -132,7 +140,9 @@ impl Lexer {
                     while self.peek().is_alphabetic() && !self.is_at_end() {
                         self.advance();
                     }
-                    let command = self.source[self.start..self.current].iter().collect();
+                    let command = self.source[self.start..self.current].iter().collect::<String>();
+                    
+                    // All hyphen-prefixed words are just commands
                     self.tokens.push(Token::new(TokenType::Command, command, self.line));
                 } else {
                     // Unary minus or minus operator
@@ -208,11 +218,10 @@ impl Lexer {
         
         let text: String = self.source[self.start..self.current].iter().collect();
         
-        // Check for boolean literals
-        if text == "true" || text == "false" {
-            self.tokens.push(Token::new(TokenType::Boolean, text, self.line));
-        } else {
-            self.tokens.push(Token::new(TokenType::Register, text, self.line));
+        // Check for reserved keywords
+        match text.as_str() {
+            "true" | "false" => self.tokens.push(Token::new(TokenType::Boolean, text, self.line)),
+            _ => self.tokens.push(Token::new(TokenType::Register, text, self.line)),
         }
     }
     

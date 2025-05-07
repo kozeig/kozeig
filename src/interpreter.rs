@@ -94,6 +94,29 @@ impl Interpreter {
             Stmt::Comment(_) => {
                 // ignore comments during execution
             }
+            Stmt::If { condition, then_branch, else_branch } => {
+                let condition_value = self.evaluate(condition)?;
+                
+                // Determine if the condition is "truthy"
+                let is_truthy = match condition_value {
+                    Value::Boolean(b) => b,
+                    Value::Number(n) => n != 0,
+                    Value::Text(s) => !s.is_empty(),
+                    Value::Null => false,
+                };
+                
+                if is_truthy {
+                    // Execute the then branch
+                    for stmt in then_branch {
+                        self.execute(stmt)?;
+                    }
+                } else if let Some(else_statements) = else_branch {
+                    // Execute the else branch if it exists
+                    for stmt in else_statements {
+                        self.execute(stmt)?;
+                    }
+                }
+            }
         }
         
         Ok(())

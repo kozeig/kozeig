@@ -1,0 +1,17 @@
+@@ Alternative If Syntax
+@@ Using command-style blocks instead of keywords
+
+x : -number 42
+
+@@ Define if-then-else using commands
+-if-begin
+-condition $x > 20
+-then-begin
+    -print 'x is greater than 20'
+-then-end
+-else-begin
+    -print 'x is not greater than 20'
+-else-end
+-if-end
+
+-print 'SUCCESS'

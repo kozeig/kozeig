@@ -1,0 +1,18 @@
+@@ If-Else Example Part 1
+
+@@ Define some variables
+age : -number 25
+minAge : -number 18
+name : -text 'Alice'
+
+@@ Basic if statement with a boolean condition
+-if $age >= $minAge
+    -print 'You are old enough!'
+-end
+
+@@ If-else statement with comparison
+-if $age > 21
+    -print $name, ' is over 21 years old'
+-else
+    -print $name, ' is 21 or younger'
+-end

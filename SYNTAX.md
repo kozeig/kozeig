@@ -220,6 +220,52 @@ This creates an executable file named after your program that can be run directl
 ./yourprogram
 ```
 
+## Control Flow
+
+### If-Else Statements
+
+Lüt supports conditional execution with if-else statements, using the command syntax:
+
+```lut
+-if expression
+    @@ then branch statements
+-else
+    @@ else branch statements (optional)
+-end
+```
+
+If statements evaluate an expression, and if the expression is "truthy" (non-zero, non-empty, or true), the then branch is executed. Otherwise, the else branch is executed if it exists.
+
+Example:
+
+```lut
+age : -number 25
+
+-if $age >= 18
+    -print 'You are an adult'
+-else
+    -print 'You are under 18'
+-end
+```
+
+Nested if statements are also supported:
+
+```lut
+score : -number 85
+
+-if $score >= 60
+    -print 'You passed!'
+    
+    -if $score >= 90
+        -print 'Excellent job!'
+    -else
+        -print 'Good job!'
+    -end
+-else
+    -print 'You failed.'
+-end
+```
+
 ## Implementation Details
 
 Lüt is implemented in Rust and compiles to efficient native code through an intermediate C representation. The runtime includes a stack-based virtual machine that executes bytecode instructions derived from your Lüt source code. While this is not the most efficient or ideal way to do things, it is more fun than strangling myself.

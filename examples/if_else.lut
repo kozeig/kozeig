@@ -1,0 +1,96 @@
+@@ If-Else Example in Lut
+@@ This demonstrates the new if-else control flow
+
+@@ Define some variables
+age : -number 25
+minAge : -number 18
+name : -text 'Alice'
+
+@@ Basic if statement with a boolean condition
+-if $age >= $minAge
+    -print 'You are old enough!'
+-end
+
+@@ If-else statement with comparison
+-if $age > 21
+    -print $name, ' is over 21 years old'
+-else
+    -print $name, ' is 21 or younger'
+-end
+
+@@ Multiple statements in if/else branches
+-if $name == 'Bob'
+    -print 'Hello Bob!'
+    -print 'How are you today?'
+-else
+    -print 'You are not Bob'
+    -print 'Your name is ', $name
+-end
+
+@@ Nested if statements
+score : -number 85
+passingScore : -number 60
+excellentScore : -number 90
+
+-if $score >= $passingScore
+    -print 'You passed the test!'
+
+    -if $score >= $excellentScore
+        -print 'Excellent job!'
+    -else
+        -print 'Good job, keep improving!'
+    -end
+-else
+    -print 'You did not pass the test.'
+-end
+
+@@ Using logical operators in conditions
+isStudent : -bool true
+hasMembership : -bool false
+
+-if $isStudent && $age < 25
+    -print 'Student discount applies!'
+-else
+    -if $hasMembership || $age > 60
+        -print 'Special discount applies!'
+    -else
+        -print 'No discount available'
+    -end
+-end
+
+@@ Using boolean expressions directly
+-if $isStudent
+    -print 'Welcome, student!'
+-end
+
+@@ Testing truthy/falsy values
+zeroValue : -number 0
+positiveValue : -number 42
+emptyText : -text ''
+someText : -text 'Hello'
+
+-print 'Checking truthy/falsy values:'
+
+-if $zeroValue
+    -print '0 is truthy'
+-else
+    -print '0 is falsy'
+-end
+
+-if $positiveValue
+    -print 'Positive number is truthy'
+-else
+    -print 'Positive number is falsy'
+-end
+
+-if $emptyText
+    -print 'Empty text is truthy'
+-else
+    -print 'Empty text is falsy'
+-end
+
+-if $someText
+    -print 'Non-empty text is truthy'
+-else
+    -print 'Non-empty text is falsy'
+-end
