@@ -1,1216 +1,916 @@
 use crate::lexer::{Lexer, TokenType};
 use crate::parser::{Expr, Parser, Stmt};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
+use inkwell::context::Context;
+use inkwell::builder::Builder;
+use inkwell::module::Module;
+use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::types::IntType;
+use inkwell::OptimizationLevel;
+use inkwell::AddressSpace;
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine
+};
 
-// Define a Bytecode enum to represent our platform-independent instructions
-#[derive(Debug, Clone)]
-pub enum Instruction {
-    LoadNumber(i64),
-    LoadText(String),
-    LoadBoolean(bool),
-    LoadVariable(String),
-    StoreVariable(String),
-    Add,
-    Subtract,
-    Multiply,
-    Divide,
-    Modulo,
-    PrintValue,
-    PrintNewline,
-    ToAscii,
-    NoOp,
-    // Comparison operators
-    Equal,
-    NotEqual,
-    Greater,
-    GreaterEqual,
-    Less,
-    LessEqual,
-    // Logical operators
-    And,
-    Or,
-    Not,
-    // Grouping
-    GroupBegin,
-    GroupEnd,
-    // Control flow
-    JumpIfFalse(usize),
-    Jump(usize),
+// Define an enum for variable types
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariableType {
+    Integer,
+    String,
+    Boolean,
 }
 
-// Simple binary encoding for the instruction
-impl Instruction {
-    fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        match *self {
-            Instruction::LoadNumber(n) => {
-                bytes.push(0); // Opcode 0 = LoadNumber
-                bytes.extend_from_slice(&n.to_le_bytes());
-            }
-            Instruction::LoadText(ref s) => {
-                bytes.push(1); // Opcode 1 = LoadText
-                let text_bytes = s.as_bytes();
-                let len = text_bytes.len() as u32;
-                bytes.extend_from_slice(&len.to_le_bytes());
-                bytes.extend_from_slice(text_bytes);
-            }
-            Instruction::LoadBoolean(b) => {
-                bytes.push(2); // Opcode 2 = LoadBoolean
-                bytes.push(if b { 1 } else { 0 });
-            }
-            Instruction::LoadVariable(ref name) => {
-                bytes.push(3); // Opcode 3 = LoadVariable
-                let name_bytes = name.as_bytes();
-                let len = name_bytes.len() as u32;
-                bytes.extend_from_slice(&len.to_le_bytes());
-                bytes.extend_from_slice(name_bytes);
-            }
-            Instruction::StoreVariable(ref name) => {
-                bytes.push(4); // Opcode 4 = StoreVariable
-                let name_bytes = name.as_bytes();
-                let len = name_bytes.len() as u32;
-                bytes.extend_from_slice(&len.to_le_bytes());
-                bytes.extend_from_slice(name_bytes);
-            }
-            Instruction::Add => bytes.push(5), // Opcode 5 = Add
-            Instruction::Subtract => bytes.push(6), // Opcode 6 = Subtract
-            Instruction::Multiply => bytes.push(7), // Opcode 7 = Multiply
-            Instruction::Divide => bytes.push(8), // Opcode 8 = Divide
-            Instruction::Modulo => bytes.push(9), // Opcode 9 = Modulo
-            Instruction::PrintValue => bytes.push(10), // Opcode 10 = PrintValue
-            Instruction::PrintNewline => bytes.push(11), // Opcode 11 = PrintNewline
-            Instruction::ToAscii => bytes.push(12), // Opcode 12 = ToAscii
-            Instruction::NoOp => bytes.push(13), // Opcode 13 = NoOp
-
-            // Comparison operators
-            Instruction::Equal => bytes.push(14), // Opcode 14 = Equal
-            Instruction::NotEqual => bytes.push(15), // Opcode 15 = NotEqual
-            Instruction::Greater => bytes.push(16), // Opcode 16 = Greater
-            Instruction::GreaterEqual => bytes.push(17), // Opcode 17 = GreaterEqual
-            Instruction::Less => bytes.push(18),  // Opcode 18 = Less
-            Instruction::LessEqual => bytes.push(19), // Opcode 19 = LessEqual
-
-            // Logical operators
-            Instruction::And => bytes.push(20), // Opcode 20 = And
-            Instruction::Or => bytes.push(21),  // Opcode 21 = Or
-            Instruction::Not => bytes.push(22), // Opcode 22 = Not
-
-            // Grouping
-            Instruction::GroupBegin => bytes.push(23), // Opcode 23 = GroupBegin
-            Instruction::GroupEnd => bytes.push(24),   // Opcode 24 = GroupEnd
-            
-            // Control flow
-            Instruction::JumpIfFalse(offset) => {
-                bytes.push(25); // Opcode 25 = JumpIfFalse
-                let offset_u32 = offset as u32;
-                bytes.extend_from_slice(&offset_u32.to_le_bytes());
-            },
-            Instruction::Jump(offset) => {
-                bytes.push(26); // Opcode 26 = Jump
-                let offset_u32 = offset as u32;
-                bytes.extend_from_slice(&offset_u32.to_le_bytes());
-            }
-        }
-        bytes
-    }
+// LLVM Code generator
+pub struct LLVMCompiler<'ctx> {
+    context: &'ctx Context,
+    module: Module<'ctx>,
+    builder: Builder<'ctx>,
+    variables: HashMap<String, PointerValue<'ctx>>,
+    variable_types: HashMap<String, VariableType>,
+    printf_func: FunctionValue<'ctx>,
+    i64_type: IntType<'ctx>,
+    // String handling functions
+    sprintf_func: FunctionValue<'ctx>,
+    atoll_func: FunctionValue<'ctx>,
+    malloc_func: FunctionValue<'ctx>,
+    strlen_func: FunctionValue<'ctx>,
 }
 
-// Bytecode compiler that outputs a JSON representation of instructions
-pub struct BytecodeCompiler {
-    instructions: Vec<Instruction>,
-    variables: Vec<String>,
-}
-
-impl BytecodeCompiler {
-    pub fn new() -> Self {
-        BytecodeCompiler {
-            instructions: Vec::new(),
-            variables: Vec::new(),
+impl<'ctx> LLVMCompiler<'ctx> {
+    pub fn new(context: &'ctx Context, module_name: &str) -> Self {
+        // Initialize LLVM targets
+        Target::initialize_all(&InitializationConfig::default());
+        
+        let module = context.create_module(module_name);
+        let builder = context.create_builder();
+        let i64_type = context.i64_type();
+        
+        // Create external functions
+        let i8_ptr_type = context.ptr_type(AddressSpace::default());
+        let i32_type = context.i32_type();
+        
+        // printf function declaration
+        let printf_type = i32_type.fn_type(&[i8_ptr_type.into()], true);
+        let printf_func = module.add_function("printf", printf_type, None);
+        
+        // sprintf function declaration (char* dest, char* format, ...)
+        let sprintf_type = i32_type.fn_type(&[i8_ptr_type.into(), i8_ptr_type.into()], true);
+        let sprintf_func = module.add_function("sprintf", sprintf_type, None);
+        
+        // atoll function declaration (char* str)
+        let atoll_type = i64_type.fn_type(&[i8_ptr_type.into()], false);
+        let atoll_func = module.add_function("atoll", atoll_type, None);
+        
+        // malloc function declaration (size_t size)
+        let malloc_type = i8_ptr_type.fn_type(&[i64_type.into()], false);
+        let malloc_func = module.add_function("malloc", malloc_type, None);
+        
+        // strlen function declaration (char* str)
+        let strlen_type = i64_type.fn_type(&[i8_ptr_type.into()], false);
+        let strlen_func = module.add_function("strlen", strlen_type, None);
+        
+        LLVMCompiler {
+            context,
+            module,
+            builder,
+            variables: HashMap::new(),
+            variable_types: HashMap::new(),
+            printf_func,
+            i64_type,
+            sprintf_func,
+            atoll_func,
+            malloc_func,
+            strlen_func,
         }
     }
-
-    pub fn compile(&mut self, statements: Vec<Stmt>) -> Result<Vec<Instruction>, String> {
+    
+    // Create an entry point
+    pub fn create_main_function(&self) -> FunctionValue<'ctx> {
+        let i32_type = self.context.i32_type();
+        let main_func_type = i32_type.fn_type(&[], false);
+        let main_func = self.module.add_function("main", main_func_type, None);
+        let entry_block = self.context.append_basic_block(main_func, "entry");
+        self.builder.position_at_end(entry_block);
+        
+        main_func
+    }
+    
+    // Create a print function that will use printf
+    fn create_print_string(&self, text: &str) {
+        // Get a string literal pointer
+        let str_ptr = self.create_string_literal(text);
+        
+        // Create a unique call ID
+        let call_id = format!("printf_call_{}", self.module.get_globals().count());
+        
+        // Call printf with the format string
+        self.builder.build_call(self.printf_func, &[str_ptr.into()], &call_id).unwrap();
+    }
+    
+    // Compile all statements and create a binary
+    pub fn compile(&mut self, statements: Vec<Stmt>) -> Result<(), String> {
+        let _main_func = self.create_main_function();
+        
+        // Compile all statements
         for stmt in statements {
             self.compile_statement(stmt)?;
         }
-
-        // Return the resulting instructions
-        Ok(self.instructions.clone())
+        
+        // Return 0 from main
+        let i32_type = self.context.i32_type();
+        let return_value = i32_type.const_int(0, false);
+        self.builder.build_return(Some(&return_value)).unwrap();
+        
+        // Verify the module
+        if let Err(err) = self.module.verify() {
+            return Err(format!("Module verification error: {}", err.to_string()));
+        }
+        
+        Ok(())
     }
-
+    
     fn compile_statement(&mut self, stmt: Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Declaration { name, initializer } => {
-                if !self.variables.contains(&name) {
-                    self.variables.push(name.clone());
-                }
-
-                self.compile_expression(initializer)?;
-                self.instructions.push(Instruction::StoreVariable(name));
-            }
+                // Create a variable (alloca) in the entry block
+                let value = self.compile_expression(initializer)?;
+                
+                // Create the appropriate type of alloca based on the value type
+                let (ptr, var_type) = match value {
+                    BasicValueEnum::IntValue(_) => {
+                        // For numbers, use i64 type
+                        let ptr = self.create_entry_block_alloca(&name);
+                        (ptr, VariableType::Integer)
+                    },
+                    BasicValueEnum::PointerValue(_) => {
+                        // For strings, use pointer type
+                        let ptr = self.create_pointer_alloca(&name);
+                        (ptr, VariableType::String)
+                    },
+                    _ => return Err("Unsupported variable type".to_string())
+                };
+                
+                self.builder.build_store(ptr, value).unwrap();
+                self.variables.insert(name.clone(), ptr);
+                self.variable_types.insert(name, var_type);
+            },
             Stmt::Expression(expr) => {
+                // Just evaluate the expression for its side effects
                 self.compile_expression(expr)?;
-                // Pop the result since it's not used
-                self.instructions.push(Instruction::NoOp);
-            }
+            },
             Stmt::Command { name, args } => {
                 match name.as_str() {
                     "-print" => {
                         for (i, arg) in args.iter().enumerate() {
-                            self.compile_expression(arg.clone())?;
-                            self.instructions.push(Instruction::PrintValue);
-
+                            let value = self.compile_expression(arg.clone())?;
+                            self.print_value(value)?;
+                            
                             // Print a space between arguments (but not after the last one)
                             if i < args.len() - 1 {
-                                self.instructions
-                                    .push(Instruction::LoadText(" ".to_string()));
-                                self.instructions.push(Instruction::PrintValue);
+                                // Do nothing in this simple version
                             }
                         }
-                        self.instructions.push(Instruction::PrintNewline);
-                    }
-                    // Other commands would be handled similarly
-                    _ => return Err(format!("Unknown command in bytecode compiler: {}", name)),
+                        // Print newline
+                        self.create_print_string("\\n");
+                    },
+                    _ => return Err(format!("Unknown command in LLVM compiler: {}", name)),
                 }
-            }
+            },
             Stmt::Print(exprs) => {
                 for (i, expr) in exprs.iter().enumerate() {
-                    self.compile_expression(expr.clone())?;
-                    self.instructions.push(Instruction::PrintValue);
-
+                    let value = self.compile_expression(expr.clone())?;
+                    self.print_value(value)?;
+                    
                     // Print a space between arguments (but not after the last one)
                     if i < exprs.len() - 1 {
-                        self.instructions
-                            .push(Instruction::LoadText(" ".to_string()));
-                        self.instructions.push(Instruction::PrintValue);
+                        // Do nothing in this simple version
                     }
                 }
-                self.instructions.push(Instruction::PrintNewline);
-            }
+                // Print newline
+                self.create_print_string("\\n");
+            },
             Stmt::Comment(_) => {
                 // Comments are ignored in the compiled output
-            }
+            },
             Stmt::If { condition, then_branch, else_branch } => {
+                // Get the current function
+                let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                
+                // Create blocks for the then, else, and merge parts
+                let then_block = self.context.append_basic_block(current_function, "then");
+                let else_block = self.context.append_basic_block(current_function, "else");
+                let merge_block = self.context.append_basic_block(current_function, "ifcont");
+                
                 // Compile the condition
-                self.compile_expression(condition)?;
+                let condition_value = self.compile_expression(condition)?;
                 
-                // Add a placeholder for the jump-if-false instruction
-                let jump_if_false_pos = self.instructions.len();
-                self.instructions.push(Instruction::JumpIfFalse(0)); // 0 is a placeholder
+                // Convert the condition to a boolean value (0 or 1)
+                let condition_value = match condition_value {
+                    BasicValueEnum::IntValue(int_val) => {
+                        // Compare with 0 to get a boolean value (0 = false, anything else = true)
+                        let zero = self.i64_type.const_int(0, false);
+                        self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            int_val,
+                            zero,
+                            "ifcond"
+                        ).unwrap()
+                    },
+                    _ => return Err("Expected integer condition in if statement".to_string())
+                };
                 
-                // Compile the then branch
+                // Create the conditional branch instruction based on the condition
+                self.builder.build_conditional_branch(condition_value, then_block, else_block).unwrap();
+                
+                // Build the then block
+                self.builder.position_at_end(then_block);
+                
+                // Compile all statements in the then branch
                 for stmt in then_branch {
                     self.compile_statement(stmt)?;
                 }
                 
-                // If there's an else branch, add a jump to skip it after then branch
-                let mut end_jump_pos = None;
-                if else_branch.is_some() {
-                    end_jump_pos = Some(self.instructions.len());
-                    self.instructions.push(Instruction::Jump(0)); // 0 is a placeholder
-                }
+                // Branch to the merge block
+                self.builder.build_unconditional_branch(merge_block).unwrap();
                 
-                // Now we know where the else branch starts, so update the jump-if-false instruction
-                let else_pos = self.instructions.len();
-                if let Some(Instruction::JumpIfFalse(_)) = self.instructions.get_mut(jump_if_false_pos) {
-                    self.instructions[jump_if_false_pos] = Instruction::JumpIfFalse(else_pos);
-                }
+                // Remember the current block to handle nested ifs properly
+                let _then_end_block = self.builder.get_insert_block().unwrap();
                 
-                // Compile the else branch if it exists
+                // Build the else block
+                self.builder.position_at_end(else_block);
+                
+                // Compile all statements in the else branch if it exists
                 if let Some(else_statements) = else_branch {
                     for stmt in else_statements {
                         self.compile_statement(stmt)?;
                     }
                 }
                 
-                // Now we know where the end of the if statement is, so update the jump instruction
-                let end_pos = self.instructions.len();
-                if let Some(pos) = end_jump_pos {
-                    if let Some(Instruction::Jump(_)) = self.instructions.get_mut(pos) {
-                        self.instructions[pos] = Instruction::Jump(end_pos);
-                    }
-                }
+                // Branch to the merge block
+                self.builder.build_unconditional_branch(merge_block).unwrap();
+                
+                // Remember the current block
+                let _else_end_block = self.builder.get_insert_block().unwrap();
+                
+                // Set the insertion point to the merge block for subsequent code
+                self.builder.position_at_end(merge_block);
             }
         }
-
+        
         Ok(())
     }
-
-    fn compile_expression(&mut self, expr: Expr) -> Result<(), String> {
+    
+    fn compile_expression(&mut self, expr: Expr) -> Result<BasicValueEnum<'ctx>, String> {
         match expr {
             Expr::VariableRef(name) => {
                 if name.starts_with('$') {
                     let var_name = name[1..].to_string();
-                    self.instructions.push(Instruction::LoadVariable(var_name));
+                    if let Some(ptr) = self.variables.get(&var_name) {
+                        // Get the variable pointer
+                        let ptr_val = *ptr;
+                        
+                        // Use the variable_types map to determine how to load the value
+                        match self.variable_types.get(&var_name) {
+                            Some(VariableType::Integer) | Some(VariableType::Boolean) => {
+                                // Load as integer value
+                                let int_load = self.builder.build_load(self.i64_type, ptr_val, &format!("{}_int", var_name)).unwrap();
+                                Ok(int_load)
+                            },
+                            Some(VariableType::String) => {
+                                // Load as pointer value
+                                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                                let ptr_load = self.builder.build_load(ptr_type, ptr_val, &format!("{}_ptr", var_name)).unwrap();
+                                Ok(ptr_load)
+                            },
+                            None => {
+                                // Fallback for backward compatibility - try to guess based on the pointer type
+                                // Try loading as pointer
+                                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                                let ptr_load = self.builder.build_load(ptr_type, ptr_val, &format!("{}_ptr", var_name)).unwrap();
+                                Ok(ptr_load)
+                            }
+                        }
+                    } else {
+                        Err(format!("Undefined variable: {}", var_name))
+                    }
                 } else {
-                    return Err(format!("Invalid variable reference: {}", name));
+                    Err(format!("Invalid variable reference: {}", name))
                 }
-            }
+            },
             Expr::NumberLiteral(value) => {
-                self.instructions.push(Instruction::LoadNumber(value));
-            }
+                let int_value = self.i64_type.const_int(value as u64, true);
+                Ok(int_value.into())
+            },
             Expr::TextLiteral(value) => {
-                self.instructions.push(Instruction::LoadText(value));
-            }
+                // Create a heap-allocated string for the text literal
+                let string_ptr = self.create_heap_string(&value);
+                Ok(string_ptr.into())
+            },
             Expr::BooleanLiteral(value) => {
-                self.instructions.push(Instruction::LoadBoolean(value));
-            }
+                // Boolean literals are represented as i64 values (0 for false, 1 for true)
+                let bool_value = self.i64_type.const_int(if value { 1 } else { 0 }, false);
+                Ok(bool_value.into())
+                // Note: When storing this in a variable, it will be tagged as VariableType::Boolean
+            },
             Expr::Grouping { expression } => {
-                self.instructions.push(Instruction::GroupBegin);
-                self.compile_expression(*expression)?;
-                self.instructions.push(Instruction::GroupEnd);
-            }
+                // Grouping just evaluates the inner expression
+                self.compile_expression(*expression)
+            },
             Expr::Unary { operator, right } => {
-                // For negation, we need to push 0 first, then the value, then subtract
-                if operator.token_type == TokenType::Minus {
-                    self.instructions.push(Instruction::LoadNumber(0));
-                }
-
-                self.compile_expression(*right)?;
-
-                match operator.token_type {
-                    TokenType::Minus => self.instructions.push(Instruction::Subtract),
-                    TokenType::Not => self.instructions.push(Instruction::Not),
-                    _ => {
-                        return Err(format!(
-                            "Unsupported unary operator: {:?}",
-                            operator.token_type
-                        ))
+                let right_val = self.compile_expression(*right)?;
+                
+                if let BasicValueEnum::IntValue(int_val) = right_val {
+                    match operator.token_type {
+                        TokenType::Minus => {
+                            let zero = self.i64_type.const_int(0, true);
+                            let result = self.builder.build_int_sub(zero, int_val, "neg").unwrap();
+                            Ok(result.into())
+                        },
+                        TokenType::Not => {
+                            // Convert to boolean (0 or 1) and negate
+                            let zero = self.i64_type.const_int(0, false);
+                            let is_zero = self.builder.build_int_compare(
+                                inkwell::IntPredicate::EQ, 
+                                int_val, 
+                                zero, 
+                                "is_zero"
+                            ).unwrap();
+                            let result = self.builder.build_int_z_extend(
+                                is_zero, 
+                                self.i64_type, 
+                                "bool_not"
+                            ).unwrap();
+                            Ok(result.into())
+                        },
+                        _ => Err(format!("Unsupported unary operator: {:?}", operator.token_type))
                     }
+                } else {
+                    Err("Expected integer value for unary operation".to_string())
                 }
-            }
-            Expr::Binary {
-                left,
-                operator,
-                right,
-            } => {
-                // Compile left and right operands
-                self.compile_expression(*left)?;
-                self.compile_expression(*right)?;
-
-                // Emit the appropriate instruction for the operator
-                match operator.token_type {
-                    TokenType::Plus => self.instructions.push(Instruction::Add),
-                    TokenType::Minus => self.instructions.push(Instruction::Subtract),
-                    TokenType::Star => self.instructions.push(Instruction::Multiply),
-                    TokenType::Slash => self.instructions.push(Instruction::Divide),
-                    TokenType::Percent => self.instructions.push(Instruction::Modulo),
-
-                    TokenType::Equal => self.instructions.push(Instruction::Equal),
-                    TokenType::NotEqual => self.instructions.push(Instruction::NotEqual),
-                    TokenType::Greater => self.instructions.push(Instruction::Greater),
-                    TokenType::GreaterEqual => self.instructions.push(Instruction::GreaterEqual),
-                    TokenType::Less => self.instructions.push(Instruction::Less),
-                    TokenType::LessEqual => self.instructions.push(Instruction::LessEqual),
-
-                    TokenType::And => self.instructions.push(Instruction::And),
-                    TokenType::Or => self.instructions.push(Instruction::Or),
-
-                    _ => {
-                        return Err(format!(
-                            "Unsupported binary operator: {:?}",
-                            operator.token_type
-                        ))
+            },
+            Expr::Binary { left, operator, right } => {
+                let left_val = self.compile_expression(*left)?;
+                let right_val = self.compile_expression(*right)?;
+                
+                // Helper function to convert a value to integer if possible
+                let to_int_value = |val: BasicValueEnum<'ctx>| -> Result<inkwell::values::IntValue<'ctx>, String> {
+                    match val {
+                        BasicValueEnum::IntValue(int_val) => Ok(int_val),
+                        BasicValueEnum::PointerValue(ptr_val) => {
+                            // Try to convert string to number using atoll
+                            let result = self.builder.build_call(
+                                self.atoll_func,
+                                &[ptr_val.into()],
+                                "atoll_call"
+                            ).unwrap();
+                            
+                            Ok(result.try_as_basic_value().left().unwrap().into_int_value())
+                        },
+                        _ => Err("Cannot convert value to integer".to_string())
                     }
+                };
+                
+                // Try to convert both operands to integers
+                let left_int = to_int_value(left_val)?;
+                let right_int = to_int_value(right_val)?;
+                
+                match operator.token_type {
+                    TokenType::Plus => {
+                        let result = self.builder.build_int_add(left_int, right_int, "add").unwrap();
+                        Ok(result.into())
+                    },
+                    TokenType::Minus => {
+                        let result = self.builder.build_int_sub(left_int, right_int, "sub").unwrap();
+                        Ok(result.into())
+                    },
+                    TokenType::Star => {
+                        let result = self.builder.build_int_mul(left_int, right_int, "mul").unwrap();
+                        Ok(result.into())
+                    },
+                    TokenType::Slash => {
+                        let result = self.builder.build_int_signed_div(left_int, right_int, "div").unwrap();
+                        Ok(result.into())
+                    },
+                    TokenType::Percent => {
+                        let result = self.builder.build_int_signed_rem(left_int, right_int, "mod").unwrap();
+                        Ok(result.into())
+                    },
+                    // Comparison operators
+                    TokenType::Equal => {
+                        let result = self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ, 
+                            left_int, 
+                            right_int, 
+                            "eq"
+                        ).unwrap();
+                        // Convert i1 to i64
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    TokenType::NotEqual => {
+                        let result = self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE, 
+                            left_int, 
+                            right_int, 
+                            "ne"
+                        ).unwrap();
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    TokenType::Less => {
+                        let result = self.builder.build_int_compare(
+                            inkwell::IntPredicate::SLT, 
+                            left_int, 
+                            right_int, 
+                            "lt"
+                        ).unwrap();
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    TokenType::LessEqual => {
+                        let result = self.builder.build_int_compare(
+                            inkwell::IntPredicate::SLE, 
+                            left_int, 
+                            right_int, 
+                            "le"
+                        ).unwrap();
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    TokenType::Greater => {
+                        let result = self.builder.build_int_compare(
+                            inkwell::IntPredicate::SGT, 
+                            left_int, 
+                            right_int, 
+                            "gt"
+                        ).unwrap();
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    TokenType::GreaterEqual => {
+                        let result = self.builder.build_int_compare(
+                            inkwell::IntPredicate::SGE, 
+                            left_int, 
+                            right_int, 
+                            "ge"
+                        ).unwrap();
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    _ => Err(format!("Binary operator not yet implemented: {:?}", operator.token_type))
                 }
-            }
+            },
             Expr::Command { name, args } => {
                 match name.as_str() {
-                    "-number" => {
-                        if args.len() != 1 {
-                            return Err("Number command expects one argument".to_string());
-                        }
-
-                        // Just compile the expression (converts to number implicitly)
-                        self.compile_expression(args[0].clone())?;
-                    }
                     "-text" => {
                         if args.len() != 1 {
                             return Err("Text command expects one argument".to_string());
                         }
-
-                        // Just compile the expression (converts to text implicitly)
-                        self.compile_expression(args[0].clone())?;
-                    }
-                    "-bool" => {
-                        if args.len() != 1 {
-                            return Err("Boolean command expects one argument".to_string());
+                        
+                        // If the argument is already a string literal, just return that
+                        match &args[0] {
+                            Expr::TextLiteral(value) => {
+                                let string_ptr = self.create_heap_string(value);
+                                // String type is indicated by the PointerValue return
+                                Ok(string_ptr.into())
+                            },
+                            // If it's another expression, compile it and convert to string
+                            expr => {
+                                let value = self.compile_expression(expr.clone())?;
+                                match value {
+                                    // If it's a string already, return it
+                                    BasicValueEnum::PointerValue(ptr_val) => {
+                                        // Already a string
+                                        Ok(ptr_val.into())
+                                    },
+                                    // If it's an integer or boolean, convert it to string
+                                    BasicValueEnum::IntValue(int_val) => {
+                                        // First create a format string for sprintf
+                                        let format = "%lld";
+                                        let format_ptr = self.create_string_literal(format);
+                                        
+                                        // Allocate buffer for result (20 chars should be enough for int64)
+                                        let buffer_size = 20;
+                                        let buffer = self.allocate_string(buffer_size);
+                                        
+                                        // Call sprintf
+                                        self.builder.build_call(
+                                            self.sprintf_func,
+                                            &[buffer.into(), format_ptr.into(), int_val.into()],
+                                            "sprintf_call"
+                                        ).unwrap();
+                                        
+                                        // Result is a string (pointer)
+                                        Ok(buffer.into())
+                                    },
+                                    _ => Err("Cannot convert value to text".to_string())
+                                }
+                            }
                         }
-
-                        // Just compile the expression (it will be treated as boolean)
-                        self.compile_expression(args[0].clone())?;
-                    }
+                    },
+                    "-number" => {
+                        if args.len() != 1 {
+                            return Err("Number command expects one argument".to_string());
+                        }
+                        
+                        // Compile the argument expression
+                        let value = self.compile_expression(args[0].clone())?;
+                        
+                        match value {
+                            // If it's an integer already, return it
+                            BasicValueEnum::IntValue(int_val) => {
+                                // Already an integer
+                                Ok(int_val.into())
+                            },
+                            // If it's a string, try to convert to integer
+                            BasicValueEnum::PointerValue(ptr_val) => {
+                                // Call atoll to convert string to integer
+                                let result = self.builder.build_call(
+                                    self.atoll_func,
+                                    &[ptr_val.into()],
+                                    "atoll_call"
+                                ).unwrap();
+                                
+                                let int_result = result.try_as_basic_value().left().unwrap();
+                                // Result is an integer
+                                Ok(int_result)
+                            },
+                            _ => Err("Cannot convert value to number".to_string())
+                        }
+                    },
                     "-asc" => {
                         if args.len() != 1 {
                             return Err("Asc command expects one argument".to_string());
                         }
-
-                        self.compile_expression(args[0].clone())?;
-                        self.instructions.push(Instruction::ToAscii);
-                    }
-                    // Add more commands as needed
-                    _ => return Err(format!("Unknown command: {}", name)),
+                        
+                        // Compile the argument expression
+                        let value = self.compile_expression(args[0].clone())?;
+                        
+                        match value {
+                            BasicValueEnum::IntValue(int_val) => {
+                                // Allocate 2 bytes (char + null terminator)
+                                let buffer = self.allocate_string(2);
+                                
+                                // Get pointer to buffer as i8*
+                                let buffer_i8_ptr = buffer;
+                                
+                                // Convert int_val to i8 (truncate to ASCII range)
+                                let char_val = self.builder.build_int_truncate(
+                                    int_val,
+                                    self.context.i8_type(),
+                                    "ascii_char"
+                                ).unwrap();
+                                
+                                // Store the character at buffer[0]
+                                self.builder.build_store(buffer_i8_ptr, char_val).unwrap();
+                                
+                                // Store null terminator at buffer[1]
+                                let null_term = self.context.i8_type().const_int(0, false);
+                                let buffer_plus_one = unsafe {
+                                    self.builder.build_gep(
+                                        self.context.i8_type(),
+                                        buffer_i8_ptr,
+                                        &[self.context.i32_type().const_int(1, false)],
+                                        "buffer_plus_one"
+                                    ).unwrap()
+                                };
+                                self.builder.build_store(buffer_plus_one, null_term).unwrap();
+                                
+                                Ok(buffer.into())
+                            },
+                            _ => Err("Asc command expects an integer argument".to_string())
+                        }
+                    },
+                    _ => Err(format!("Command expression not implemented: {}", name))
                 }
             }
         }
-
+    }
+    
+    // Helper to create an i64 alloca instruction in the entry block
+    fn create_entry_block_alloca(&self, name: &str) -> PointerValue<'ctx> {
+        let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let entry = func.get_first_basic_block().unwrap();
+        
+        match entry.get_first_instruction() {
+            Some(first_instr) => {
+                let builder = self.context.create_builder();
+                builder.position_before(&first_instr);
+                builder.build_alloca(self.i64_type, name).unwrap()
+            }
+            None => {
+                let current_block = self.builder.get_insert_block().unwrap();
+                let builder = self.context.create_builder();
+                builder.position_at_end(entry);
+                let alloca = builder.build_alloca(self.i64_type, name).unwrap();
+                self.builder.position_at_end(current_block);
+                alloca
+            }
+        }
+    }
+    
+    // Helper to create a pointer alloca instruction in the entry block
+    fn create_pointer_alloca(&self, name: &str) -> PointerValue<'ctx> {
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let entry = func.get_first_basic_block().unwrap();
+        
+        match entry.get_first_instruction() {
+            Some(first_instr) => {
+                let builder = self.context.create_builder();
+                builder.position_before(&first_instr);
+                builder.build_alloca(ptr_type, name).unwrap()
+            }
+            None => {
+                let current_block = self.builder.get_insert_block().unwrap();
+                let builder = self.context.create_builder();
+                builder.position_at_end(entry);
+                let alloca = builder.build_alloca(ptr_type, name).unwrap();
+                self.builder.position_at_end(current_block);
+                alloca
+            }
+        }
+    }
+    
+    // Create a string literal as a global constant
+    fn create_string_literal(&self, string_val: &str) -> PointerValue<'ctx> {
+        let i8_type = self.context.i8_type();
+        let string_type = i8_type.array_type((string_val.len() + 1) as u32);
+        
+        // Create a unique name for the global string
+        let global_name = format!("str_{}", self.module.get_globals().count());
+        let global_string = self.module.add_global(string_type, None, &global_name);
+        global_string.set_constant(true);
+        global_string.set_linkage(inkwell::module::Linkage::Private);
+        global_string.set_initializer(&self.context.const_string(string_val.as_bytes(), true));
+        
+        // Create a pointer to the string data
+        let zero = self.context.i32_type().const_zero();
+        let indices = [zero, zero];
+        unsafe {
+            self.builder.build_gep(i8_type, global_string.as_pointer_value(), &indices, "str_ptr").unwrap()
+        }
+    }
+    
+    // Allocate heap memory for a string
+    fn allocate_string(&self, size: u64) -> PointerValue<'ctx> {
+        let size_val = self.i64_type.const_int(size, false);
+        let malloc_call = self.builder.build_call(
+            self.malloc_func,
+            &[size_val.into()],
+            "malloc_call"
+        ).unwrap();
+        
+        malloc_call.try_as_basic_value().left().unwrap().into_pointer_value()
+    }
+    
+    // Create a heap-allocated string from a string literal
+    fn create_heap_string(&self, string_val: &str) -> PointerValue<'ctx> {
+        // Allocate memory for the string (+1 for null terminator)
+        let size = string_val.len() as u64 + 1;
+        let heap_ptr = self.allocate_string(size);
+        
+        // Copy the string data to the allocated memory
+        for (i, byte) in string_val.bytes().enumerate() {
+            // Get pointer to character position
+            let char_ptr = unsafe {
+                self.builder.build_gep(
+                    self.context.i8_type(),
+                    heap_ptr,
+                    &[self.context.i32_type().const_int(i as u64, false)],
+                    &format!("char_ptr_{}", i)
+                ).unwrap()
+            };
+            
+            // Store the character
+            let char_val = self.context.i8_type().const_int(byte as u64, false);
+            self.builder.build_store(char_ptr, char_val).unwrap();
+        }
+        
+        // Add null terminator
+        let null_ptr = unsafe {
+            self.builder.build_gep(
+                self.context.i8_type(),
+                heap_ptr,
+                &[self.context.i32_type().const_int(string_val.len() as u64, false)],
+                "null_ptr"
+            ).unwrap()
+        };
+        
+        let null_char = self.context.i8_type().const_int(0, false);
+        self.builder.build_store(null_ptr, null_char).unwrap();
+        
+        heap_ptr
+    }
+    
+    fn print_value(&self, value: BasicValueEnum<'ctx>) -> Result<(), String> {
+        // Create a unique printf call id to avoid name conflicts
+        let call_id = format!("printf_call_{}", self.module.get_globals().count());
+        
+        match value {
+            BasicValueEnum::IntValue(int_val) => {
+                // Create format string for integer: "%lld"
+                let format = "%lld";
+                let format_ptr = self.create_string_literal(format);
+                
+                self.builder.build_call(
+                    self.printf_func, 
+                    &[format_ptr.into(), int_val.into()], 
+                    &call_id
+                ).unwrap();
+                
+                Ok(())
+            },
+            BasicValueEnum::PointerValue(ptr_val) => {
+                // Assume pointer is a string and print it with "%s"
+                let format = "%s";
+                let format_ptr = self.create_string_literal(format);
+                
+                self.builder.build_call(
+                    self.printf_func, 
+                    &[format_ptr.into(), ptr_val.into()], 
+                    &call_id
+                ).unwrap();
+                
+                Ok(())
+            },
+            _ => Err("Unsupported value type for printing".to_string())
+        }
+    }
+    
+    // Write the module to a file
+    pub fn write_to_file(&self, filename: &str) -> Result<(), String> {
+        if let Err(e) = self.module.print_to_file(filename) {
+            return Err(format!("Error writing LLVM IR to file: {}", e.to_string()));
+        }
+        Ok(())
+    }
+    
+    // JIT compile and execute the module
+    pub fn jit_compile_and_run(&self) -> Result<(), String> {
+        let execution_engine = self.module.create_jit_execution_engine(OptimizationLevel::Default)
+            .map_err(|e| format!("Error creating JIT execution engine: {}", e))?;
+        
+        unsafe {
+            let main_fn = execution_engine.get_function::<unsafe extern "C" fn() -> i32>("main")
+                .map_err(|e| format!("Error getting main function: {}", e))?;
+                
+            main_fn.call();
+        }
+        
+        Ok(())
+    }
+    
+    // Create a native executable file
+    pub fn create_executable(&self, output_filename: &str) -> Result<(), String> {
+        // Get the default target triple
+        let target_triple = TargetMachine::get_default_triple();
+        println!("Targeting: {}", target_triple.to_string());
+        
+        // Get the target from the triple
+        let target = Target::from_triple(&target_triple)
+            .map_err(|e| format!("Error getting target from triple: {}", e))?;
+        
+        // Create a target machine
+        let target_machine = target.create_target_machine(
+            &target_triple,
+            "generic",
+            "",
+            OptimizationLevel::Default,
+            RelocMode::Default,
+            CodeModel::Default,
+        ).ok_or_else(|| "Error creating target machine".to_string())?;
+        
+        // Set the data layout for the module
+        self.module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+        self.module.set_triple(&target_triple);
+        
+        // Verify the module is valid
+        if let Err(err) = self.module.verify() {
+            return Err(format!("Module verification error: {}", err.to_string()));
+        }
+        
+        // First create an object file
+        let object_filename = format!("{}.o", output_filename);
+        let object_path = std::path::Path::new(&object_filename);
+        target_machine.write_to_file(&self.module, FileType::Object, object_path)
+            .map_err(|e| format!("Error writing object file: {}", e))?;
+        
+        println!("Generated object file: {}", object_filename);
+        
+        // Now link the object file into an executable using system linker
+        #[cfg(target_os = "macos")]
+        let linking_result = Command::new("cc")
+            .arg("-o")
+            .arg(output_filename)
+            .arg(&object_filename)
+            .status()
+            .map_err(|e| format!("Error executing linker: {}", e))?;
+            
+        #[cfg(target_os = "linux")]
+        let linking_result = Command::new("cc")
+            .arg("-o")
+            .arg(output_filename)
+            .arg(&object_filename)
+            .status()
+            .map_err(|e| format!("Error executing linker: {}", e))?;
+            
+        #[cfg(target_os = "windows")]
+        let linking_result = Command::new("cl")
+            .arg("/Fe:")
+            .arg(output_filename)
+            .arg(&object_filename)
+            .status()
+            .map_err(|e| format!("Error executing linker: {}", e))?;
+        
+        if !linking_result.success() {
+            return Err("Linking failed".to_string());
+        }
+        
+        // Make the resulting binary executable on Unix-like systems
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            
+            let metadata = fs::metadata(output_filename)
+                .map_err(|e| format!("Failed to get metadata: {}", e))?;
+                
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o755); // rwxr-xr-x
+            
+            fs::set_permissions(output_filename, perms)
+                .map_err(|e| format!("Failed to set permissions: {}", e))?;
+        }
+        
+        println!("Generated executable: {}", output_filename);
         Ok(())
     }
 }
 
-// Convert instructions to serializable format
-impl std::fmt::Display for Instruction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Instruction::LoadNumber(n) => write!(f, "{{\"op\":\"load_number\",\"value\":{}}}", n),
-            Instruction::LoadText(s) => write!(
-                f,
-                "{{\"op\":\"load_text\",\"value\":\"{}\"}}",
-                s.replace("\"", "\\\"")
-            ),
-            Instruction::LoadBoolean(b) => write!(f, "{{\"op\":\"load_boolean\",\"value\":{}}}", if *b { "true" } else { "false" }),
-            Instruction::LoadVariable(name) => {
-                write!(f, "{{\"op\":\"load_variable\",\"name\":\"{}\"}}", name)
-            }
-            Instruction::StoreVariable(name) => {
-                write!(f, "{{\"op\":\"store_variable\",\"name\":\"{}\"}}", name)
-            }
-            Instruction::Add => write!(f, "{{\"op\":\"add\"}}"),
-            Instruction::Subtract => write!(f, "{{\"op\":\"subtract\"}}"),
-            Instruction::Multiply => write!(f, "{{\"op\":\"multiply\"}}"),
-            Instruction::Divide => write!(f, "{{\"op\":\"divide\"}}"),
-            Instruction::Modulo => write!(f, "{{\"op\":\"modulo\"}}"),
-            Instruction::PrintValue => write!(f, "{{\"op\":\"print_value\"}}"),
-            Instruction::PrintNewline => write!(f, "{{\"op\":\"print_newline\"}}"),
-            Instruction::ToAscii => write!(f, "{{\"op\":\"to_ascii\"}}"),
-            Instruction::NoOp => write!(f, "{{\"op\":\"noop\"}}"),
-
-            // Comparison operators
-            Instruction::Equal => write!(f, "{{\"op\":\"equal\"}}"),
-            Instruction::NotEqual => write!(f, "{{\"op\":\"not_equal\"}}"),
-            Instruction::Greater => write!(f, "{{\"op\":\"greater\"}}"),
-            Instruction::GreaterEqual => write!(f, "{{\"op\":\"greater_equal\"}}"),
-            Instruction::Less => write!(f, "{{\"op\":\"less\"}}"),
-            Instruction::LessEqual => write!(f, "{{\"op\":\"less_equal\"}}"),
-
-            // Logical operators
-            Instruction::And => write!(f, "{{\"op\":\"and\"}}"),
-            Instruction::Or => write!(f, "{{\"op\":\"or\"}}"),
-            Instruction::Not => write!(f, "{{\"op\":\"not\"}}"),
-
-            // Grouping
-            Instruction::GroupBegin => write!(f, "{{\"op\":\"group_begin\"}}"),
-            Instruction::GroupEnd => write!(f, "{{\"op\":\"group_end\"}}"),
-            
-            // Control flow
-            Instruction::JumpIfFalse(offset) => write!(f, "{{\"op\":\"jump_if_false\",\"offset\":{}}}", offset),
-            Instruction::Jump(offset) => write!(f, "{{\"op\":\"jump\",\"offset\":{}}}", offset),
-        }
-    }
-}
-
+// Top-level compile function that takes source code and outputs binary
 pub fn compile(source: &str, file_path: &str) -> Result<(), String> {
-    //use tempfile::NamedTempFile;
-    use std::io::Write;
-
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
     let mut parser = Parser::new(tokens);
     let statements = parser.parse()?;
 
-    let mut bytecode_compiler = BytecodeCompiler::new();
-    let instructions = bytecode_compiler.compile(statements)?;
-
-    let mut bytecode_data = Vec::new();
-    for instruction in &instructions {
-        bytecode_data.extend(instruction.to_bytes());
-    }
-
-    // Create the output binary path
-    // For file input like examples/hello.lut, just use basename 'hello'
+    // Create LLVM context and compiler
+    let context = Context::create();
     let source_path = Path::new(file_path);
     let file_stem = source_path
         .file_stem()
         .unwrap_or_default()
         .to_string_lossy();
-    let file_stem_str = file_stem.to_string();
-    let out_path = Path::new(&file_stem_str);
-
-    // Create a temp C file with the embedded bc
-    let temp_dir = tempfile::tempdir().map_err(|e| format!("Failed to create temp dir: {}", e))?;
-    let c_path = temp_dir.path().join("bytecode.c");
-    let mut c_file =
-        fs::File::create(&c_path).map_err(|e| format!("Failed to create C file: {}", e))?;
-
-    writeln!(c_file, "#include <stdio.h>").map_err(|e| format!("Write error: {}", e))?;
-    writeln!(c_file, "#include <stdlib.h>").map_err(|e| format!("Write error: {}", e))?;
-    writeln!(c_file, "#include <string.h>").map_err(|e| format!("Write error: {}", e))?;
-    writeln!(c_file, "#include <stdint.h>").map_err(|e| format!("Write error: {}", e))?;
-    writeln!(c_file).map_err(|e| format!("Write error: {}", e))?;
-
-    writeln!(c_file, "const unsigned char BYTECODE[] = {{")
-        .map_err(|e| format!("Write error: {}", e))?;
-
-    for (i, byte) in bytecode_data.iter().enumerate() {
-        if i > 0 && i % 12 == 0 {
-            writeln!(c_file).map_err(|e| format!("Write error: {}", e))?;
-        }
-        write!(c_file, "0x{:02x}, ", byte).map_err(|e| format!("Write error: {}", e))?;
-    }
-
-    writeln!(c_file, "\n}};").map_err(|e| format!("Write error: {}", e))?;
-    writeln!(
-        c_file,
-        "const size_t BYTECODE_SIZE = {};",
-        bytecode_data.len()
-    )
-    .map_err(|e| format!("Write error: {}", e))?;
-
-    // runtime implementation in C
-    writeln!(c_file, r#"
-// val types
-typedef enum {{
-    NUMBER,
-    TEXT,
-    BOOLEAN
-}} ValueType;
-
-// val struct
-typedef struct {{
-    ValueType type;
-    union {{
-        int64_t number;
-        char* text;
-        int boolean;  // Using int (0 or 1) to represent boolean values
-    }} data;
-}} Value;
-
-// instructions
-typedef enum {{
-    LOAD_NUMBER,
-    LOAD_TEXT,
-    LOAD_BOOLEAN,
-    LOAD_VARIABLE,
-    STORE_VARIABLE,
-    ADD,
-    SUBTRACT,
-    MULTIPLY,
-    DIVIDE,
-    MODULO,
-    PRINT_VALUE,
-    PRINT_NEWLINE,
-    TO_ASCII,
-    NOOP,
-    // Comparison operators
-    EQUAL,
-    NOT_EQUAL,
-    GREATER,
-    GREATER_EQUAL,
-    LESS,
-    LESS_EQUAL,
-    // Logical operators
-    AND,
-    OR,
-    NOT,
-    // Grouping
-    GROUP_BEGIN,
-    GROUP_END,
-    // Control Flow
-    JUMP_IF_FALSE,
-    JUMP
-}} InstructionType;
-
-// var storage
-typedef struct {{
-    char* name;
-    Value value;
-}} Variable;
-
-// env
-typedef struct {{
-    Variable* variables;
-    size_t variable_count;
-    size_t variable_capacity;
-
-    Value* stack;
-    size_t stack_size;
-    size_t stack_capacity;
-}} Environment;
-
-// create and init env
-Environment* create_environment() {{
-    Environment* env = (Environment*)malloc(sizeof(Environment));
-    env->variables = NULL;
-    env->variable_count = 0;
-    env->variable_capacity = 0;
-
-    env->stack = NULL;
-    env->stack_size = 0;
-    env->stack_capacity = 0;
-
-    return env;
-}}
-
-// push val to stack
-void push(Environment* env, Value value) {{
-    if (env->stack_size >= env->stack_capacity) {{
-        env->stack_capacity = env->stack_capacity == 0 ? 8 : env->stack_capacity * 2;
-        env->stack = (Value*)realloc(env->stack, env->stack_capacity * sizeof(Value));
-    }}
-
-    env->stack[env->stack_size++] = value;
-}}
-
-// pop val from stack
-Value pop(Environment* env) {{
-    if (env->stack_size == 0) {{
-        fprintf(stderr, "Runtime error: Stack underflow\n");
-        exit(1);
-    }}
-
-    return env->stack[--env->stack_size];
-}}
-
-// store var
-void store_variable(Environment* env, const char* name, Value value) {{
-    // Look for existing var
-    for (size_t i = 0; i < env->variable_count; i++) {{
-        if (strcmp(env->variables[i].name, name) == 0) {{
-            // Free old text if needed
-            if (env->variables[i].value.type == TEXT && env->variables[i].value.data.text != NULL) {{
-                free(env->variables[i].value.data.text);
-            }}
-
-            env->variables[i].value = value;
-            return;
-        }}
-    }}
-
-    // Add new var
-    if (env->variable_count >= env->variable_capacity) {{
-        env->variable_capacity = env->variable_capacity == 0 ? 8 : env->variable_capacity * 2;
-        env->variables = (Variable*)realloc(env->variables, env->variable_capacity * sizeof(Variable));
-    }}
-
-    env->variables[env->variable_count].name = strdup(name);
-    env->variables[env->variable_count].value = value;
-    env->variable_count++;
-}}
-
-// load var
-Value load_variable(Environment* env, const char* name) {{
-    for (size_t i = 0; i < env->variable_count; i++) {{
-        if (strcmp(env->variables[i].name, name) == 0) {{
-            return env->variables[i].value;
-        }}
-    }}
-
-    fprintf(stderr, "Runtime error: Undefined variable '%s'\n", name);
-    exit(1);
-}}
-
-// create text val
-Value create_text_value(const char* text) {{
-    Value value;
-    value.type = TEXT;
-    value.data.text = strdup(text);
-    return value;
-}}
-
-// create number val
-Value create_number_value(int64_t number) {{
-    Value value;
-    value.type = NUMBER;
-    value.data.number = number;
-    return value;
-}}
-
-// create boolean val
-Value create_boolean_value(int boolean) {{
-    Value value;
-    value.type = BOOLEAN;
-    value.data.boolean = boolean ? 1 : 0;
-    return value;
-}}
-
-// Properly cleanup memory resources
-void cleanup_environment(Environment* env) {{
-    if (env == NULL) return;
-
-    // Free variables
-    if (env->variables != NULL) {{
-        for (size_t i = 0; i < env->variable_count; i++) {{
-            if (env->variables[i].name != NULL) {{
-                free(env->variables[i].name);
-            }}
-            
-            if (env->variables[i].value.type == TEXT && env->variables[i].value.data.text != NULL) {{
-                free(env->variables[i].value.data.text);
-            }}
-        }}
-        free(env->variables);
-    }}
-
-    // Free stack values
-    if (env->stack != NULL) {{
-        for (size_t i = 0; i < env->stack_size; i++) {{
-            if (env->stack[i].type == TEXT && env->stack[i].data.text != NULL) {{
-                free(env->stack[i].data.text);
-            }}
-        }}
-        free(env->stack);
-    }}
-
-    // Free the environment itself
-    free(env);
-}}
-
-// run
-void run_bytecode(unsigned char* bytecode, size_t size) {{
-    Environment* env = create_environment();
-
-    // Simple bytecode interpreter
-    size_t ip = 0;  // Instruction pointer
-
-    while (ip < size) {{
-        InstructionType instr_type = bytecode[ip++];
-
-        switch (instr_type) {{
-            case LOAD_NUMBER: {{
-                // Read 8-byte number
-                int64_t value = 0;
-                memcpy(&value, &bytecode[ip], sizeof(int64_t));
-                ip += sizeof(int64_t);
-
-                push(env, create_number_value(value));
-                break;
-            }}
-
-            case LOAD_TEXT: {{
-                // Read string length
-                uint32_t len = 0;
-                memcpy(&len, &bytecode[ip], sizeof(uint32_t));
-                ip += sizeof(uint32_t);
-
-                // Read string
-                char* text = (char*)malloc(len + 1);
-                memcpy(text, &bytecode[ip], len);
-                text[len] = '\0';
-                ip += len;
-
-                Value value;
-                value.type = TEXT;
-                value.data.text = text;
-                push(env, value);
-                break;
-            }}
-
-            case LOAD_BOOLEAN: {{
-                // Read boolean value (0 or 1)
-                int boolean_val = bytecode[ip++];
-                push(env, create_boolean_value(boolean_val));
-                break;
-            }}
-
-            case LOAD_VARIABLE: {{
-                // Read variable name length
-                uint32_t len = 0;
-                memcpy(&len, &bytecode[ip], sizeof(uint32_t));
-                ip += sizeof(uint32_t);
-
-                // Read variable name
-                char* name = (char*)malloc(len + 1);
-                memcpy(name, &bytecode[ip], len);
-                name[len] = '\0';
-                ip += len;
-
-                Value value = load_variable(env, name);
-                push(env, value);
-
-                free(name);
-                break;
-            }}
-
-            case STORE_VARIABLE: {{
-                // Read variable name length
-                uint32_t len = 0;
-                memcpy(&len, &bytecode[ip], sizeof(uint32_t));
-                ip += sizeof(uint32_t);
-
-                // Read variable name
-                char* name = (char*)malloc(len + 1);
-                memcpy(name, &bytecode[ip], len);
-                name[len] = '\0';
-                ip += len;
-
-                Value value = pop(env);
-                store_variable(env, name, value);
-
-                free(name);
-                break;
-            }}
-
-            case ADD: {{
-                Value right = pop(env);
-                Value left = pop(env);
-
-                int64_t left_val = left.type == NUMBER ? left.data.number :
-                                  (left.type == TEXT ? atoll(left.data.text) : 0);
-                int64_t right_val = right.type == NUMBER ? right.data.number :
-                                   (right.type == TEXT ? atoll(right.data.text) : 0);
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(left_val + right_val));
-                break;
-            }}
-
-            case SUBTRACT: {{
-                Value right = pop(env);
-                Value left = pop(env);
-
-                // Get left value
-                int64_t left_val;
-                if (left.type == NUMBER) {{
-                    left_val = left.data.number;
-                }} else if (left.type == TEXT && left.data.text) {{
-                    // Safely convert text to number
-                    char* endptr = NULL;
-                    left_val = strtoll(left.data.text, &endptr, 10);
-                    // Check if conversion was successful
-                    if (endptr == left.data.text) {{
-                        fprintf(stderr, "Runtime error: Cannot convert '%s' to a number for subtraction\n", left.data.text);
-                        exit(1);
-                    }}
-                }} else {{
-                    left_val = 0;
-                }}
-
-                // Get right value
-                int64_t right_val;
-                if (right.type == NUMBER) {{
-                    right_val = right.data.number;
-                }} else if (right.type == TEXT && right.data.text) {{
-                    // Safely convert text to number
-                    char* endptr = NULL;
-                    right_val = strtoll(right.data.text, &endptr, 10);
-                    // Check if conversion was successful
-                    if (endptr == right.data.text) {{
-                        fprintf(stderr, "Runtime error: Cannot convert '%s' to a number for subtraction\n", right.data.text);
-                        exit(1);
-                    }}
-                }} else {{
-                    right_val = 0;
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(left_val - right_val));
-                break;
-            }}
-
-            case MULTIPLY: {{
-                Value right = pop(env);
-                Value left = pop(env);
-
-                int64_t left_val = left.type == NUMBER ? left.data.number :
-                                  (left.type == TEXT ? atoll(left.data.text) : 0);
-                int64_t right_val = right.type == NUMBER ? right.data.number :
-                                   (right.type == TEXT ? atoll(right.data.text) : 0);
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(left_val * right_val));
-                break;
-            }}
-
-            case DIVIDE: {{
-                Value right = pop(env);
-                Value left = pop(env);
-
-                int64_t left_val = left.type == NUMBER ? left.data.number :
-                                  (left.type == TEXT ? atoll(left.data.text) : 0);
-                int64_t right_val = right.type == NUMBER ? right.data.number :
-                                   (right.type == TEXT ? atoll(right.data.text) : 0);
-
-                if (right_val == 0) {{
-                    fprintf(stderr, "Runtime error: Division by zero\n");
-                    exit(1);
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(left_val / right_val));
-                break;
-            }}
-
-            case MODULO: {{
-                Value right = pop(env);
-                Value left = pop(env);
-
-                int64_t left_val = left.type == NUMBER ? left.data.number :
-                                  (left.type == TEXT ? atoll(left.data.text) : 0);
-                int64_t right_val = right.type == NUMBER ? right.data.number :
-                                   (right.type == TEXT ? atoll(right.data.text) : 0);
-
-                if (right_val == 0) {{
-                    fprintf(stderr, "Runtime error: Modulo by zero\n");
-                    exit(1);
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(left_val % right_val));
-                break;
-            }}
-
-            case PRINT_VALUE: {{
-                Value value = pop(env);
-
-                if (value.type == NUMBER) {{
-                    printf("%lld", value.data.number);
-                }} else if (value.type == TEXT) {{
-                    printf("%s", value.data.text);
-                    free(value.data.text);
-                }} else if (value.type == BOOLEAN) {{
-                    printf("%s", value.data.boolean ? "true" : "false");
-                }}
-
-                break;
-            }}
-
-            case PRINT_NEWLINE: {{
-                printf("\n");
-                break;
-            }}
-
-            case TO_ASCII: {{
-                Value value = pop(env);
-                int64_t code = value.type == NUMBER ? value.data.number :
-                              (value.type == TEXT ? atoll(value.data.text) : 0);
-
-                if (value.type == TEXT && value.data.text) {{
-                    free(value.data.text);
-                }}
-
-                char ascii_char = (char)code;
-                char* text = (char*)malloc(2);
-                text[0] = ascii_char;
-                text[1] = '\0';
-
-                Value text_value;
-                text_value.type = TEXT;
-                text_value.data.text = text;
-                push(env, text_value);
-                break;
-            }}
-
-            case NOOP:
-                // Do nothing
-                break;
-
-            // Comparison operators
-            case EQUAL: {{
-                Value right = pop(env);
-                Value left = pop(env);
-                int64_t result = 0;
-
-                if (left.type == NUMBER && right.type == NUMBER) {{
-                    result = (left.data.number == right.data.number) ? 1 : 0;
-                }} else if (left.type == TEXT && right.type == TEXT) {{
-                    result = (strcmp(left.data.text, right.data.text) == 0) ? 1 : 0;
-                }} else {{
-                    result = 0; // Different types are never equal
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(result));
-                break;
-            }}
-
-            case NOT_EQUAL: {{
-                Value right = pop(env);
-                Value left = pop(env);
-                int64_t result = 0;
-
-                if (left.type == NUMBER && right.type == NUMBER) {{
-                    result = (left.data.number != right.data.number) ? 1 : 0;
-                }} else if (left.type == TEXT && right.type == TEXT) {{
-                    result = (strcmp(left.data.text, right.data.text) != 0) ? 1 : 0;
-                }} else {{
-                    result = 1; // Different types are always not equal
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(result));
-                break;
-            }}
-
-            case GREATER: {{
-                Value right = pop(env);
-                Value left = pop(env);
-                int64_t result = 0;
-
-                if (left.type == NUMBER && right.type == NUMBER) {{
-                    result = (left.data.number > right.data.number) ? 1 : 0;
-                }} else if (left.type == TEXT && right.type == TEXT) {{
-                    result = (strcmp(left.data.text, right.data.text) > 0) ? 1 : 0;
-                }} else {{
-                    fprintf(stderr, "Runtime error: Cannot compare different types\n");
-                    exit(1);
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(result));
-                break;
-            }}
-
-            case GREATER_EQUAL: {{
-                Value right = pop(env);
-                Value left = pop(env);
-                int64_t result = 0;
-
-                if (left.type == NUMBER && right.type == NUMBER) {{
-                    result = (left.data.number >= right.data.number) ? 1 : 0;
-                }} else if (left.type == TEXT && right.type == TEXT) {{
-                    result = (strcmp(left.data.text, right.data.text) >= 0) ? 1 : 0;
-                }} else {{
-                    fprintf(stderr, "Runtime error: Cannot compare different types\n");
-                    exit(1);
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(result));
-                break;
-            }}
-
-            case LESS: {{
-                Value right = pop(env);
-                Value left = pop(env);
-                int64_t result = 0;
-
-                if (left.type == NUMBER && right.type == NUMBER) {{
-                    result = (left.data.number < right.data.number) ? 1 : 0;
-                }} else if (left.type == TEXT && right.type == TEXT) {{
-                    result = (strcmp(left.data.text, right.data.text) < 0) ? 1 : 0;
-                }} else {{
-                    fprintf(stderr, "Runtime error: Cannot compare different types\n");
-                    exit(1);
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(result));
-                break;
-            }}
-
-            case LESS_EQUAL: {{
-                Value right = pop(env);
-                Value left = pop(env);
-                int64_t result = 0;
-
-                if (left.type == NUMBER && right.type == NUMBER) {{
-                    result = (left.data.number <= right.data.number) ? 1 : 0;
-                }} else if (left.type == TEXT && right.type == TEXT) {{
-                    result = (strcmp(left.data.text, right.data.text) <= 0) ? 1 : 0;
-                }} else {{
-                    fprintf(stderr, "Runtime error: Cannot compare different types\n");
-                    exit(1);
-                }}
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(result));
-                break;
-            }}
-
-            // Logical operators
-            case AND: {{
-                Value right = pop(env);
-                Value left = pop(env);
-
-                int64_t left_bool = (left.type == NUMBER && left.data.number != 0) ||
-                                   (left.type == TEXT && left.data.text && strlen(left.data.text) > 0);
-
-                int64_t right_bool = (right.type == NUMBER && right.data.number != 0) ||
-                                    (right.type == TEXT && right.data.text && strlen(right.data.text) > 0);
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(left_bool && right_bool ? 1 : 0));
-                break;
-            }}
-
-            case OR: {{
-                Value right = pop(env);
-                Value left = pop(env);
-
-                int64_t left_bool = (left.type == NUMBER && left.data.number != 0) ||
-                                   (left.type == TEXT && left.data.text && strlen(left.data.text) > 0);
-
-                int64_t right_bool = (right.type == NUMBER && right.data.number != 0) ||
-                                    (right.type == TEXT && right.data.text && strlen(right.data.text) > 0);
-
-                // Free text values if needed
-                if (left.type == TEXT && left.data.text) free(left.data.text);
-                if (right.type == TEXT && right.data.text) free(right.data.text);
-
-                push(env, create_number_value(left_bool || right_bool ? 1 : 0));
-                break;
-            }}
-
-            case NOT: {{
-                Value value = pop(env);
-
-                int64_t bool_val = (value.type == NUMBER && value.data.number != 0) ||
-                                  (value.type == TEXT && value.data.text && strlen(value.data.text) > 0);
-
-                // Free text values if needed
-                if (value.type == TEXT && value.data.text) free(value.data.text);
-
-                push(env, create_number_value(bool_val ? 0 : 1));
-                break;
-            }}
-
-            // Grouping (no effect on runtime, used for parsing)
-            case GROUP_BEGIN:
-            case GROUP_END:
-                break;
-                
-            // Control flow
-            case JUMP_IF_FALSE: {{
-                // Read 4-byte offset
-                uint32_t offset = 0;
-                memcpy(&offset, &bytecode[ip], sizeof(uint32_t));
-                ip += sizeof(uint32_t);
-                
-                // Check the condition (0 = false, non-zero = true)
-                Value condition = pop(env);
-                int is_true = 0;
-                
-                if (condition.type == NUMBER) {{
-                    is_true = condition.data.number != 0;
-                }} else if (condition.type == TEXT) {{
-                    is_true = condition.data.text != NULL && strlen(condition.data.text) > 0;
-                }} else if (condition.type == BOOLEAN) {{
-                    is_true = condition.data.boolean != 0;
-                }}
-                
-                // Free text value if needed
-                if (condition.type == TEXT && condition.data.text != NULL) {{
-                    free(condition.data.text);
-                }}
-                
-                // If condition is false, jump to the specified offset
-                if (!is_true) {{
-                    ip = offset;
-                }}
-                
-                break;
-            }}
-            
-            case JUMP: {{
-                // Read 4-byte offset
-                uint32_t offset = 0;
-                memcpy(&offset, &bytecode[ip], sizeof(uint32_t));
-                ip += sizeof(uint32_t);
-                
-                // Jump to the specified offset
-                ip = offset;
-                
-                break;
-            }}
-
-            default:
-                fprintf(stderr, "Runtime error: Unknown instruction %d\n", instr_type);
-                exit(1);
-        }}
-    }}
-
-    cleanup_environment(env);
-}}
-
-int main() {{
-    run_bytecode((unsigned char*)BYTECODE, BYTECODE_SIZE);
-    return 0;
-}}
-"#).map_err(|e| format!("Write error: {}", e))?;
-
-    c_file.flush().map_err(|e| format!("Flush error: {}", e))?;
-
-    // Compile the C file
-    println!("Compiling to standalone binary: {}", out_path.display());
-
-    // use system compiler directly
-    let output_path = out_path.to_str().unwrap_or("./output");
-
-    // command for binary
-    #[cfg(unix)]
-    let status = std::process::Command::new("cc")
-        .arg("-o")
-        .arg(output_path)
-        .arg(&c_path)
-        .arg("-O2")
-        .status()
-        .map_err(|e| format!("Failed to execute compiler: {}", e))?;
-
-    #[cfg(windows)] // untested just assume this works i guess
-    let status = std::process::Command::new("cl")
-        .arg("/Fe:")
-        .arg(output_path)
-        .arg(&c_path)
-        .arg("/O2")
-        .status()
-        .map_err(|e| format!("Failed to execute compiler: {}", e))?;
-
-    if !status.success() {
-        return Err("C compiler failed".to_string());
-    }
-
-    // make it go vroom vroom
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let metadata =
-            fs::metadata(out_path).map_err(|e| format!("Failed to get metadata: {}", e))?;
-        let mut perms = metadata.permissions();
-        perms.set_mode(0o755); // rwxr-xr-x
-        fs::set_permissions(out_path, perms)
-            .map_err(|e| format!("Failed to set permissions: {}", e))?;
-    }
-
-    println!("Created executable: {}", out_path.display());
-    println!("Run with: ./{}", out_path.display());
-
+    let module_name = file_stem.to_string();
+    
+    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name);
+    llvm_compiler.compile(statements)?;
+    
+    // Generate output paths
+    let ir_path = format!("{}.ll", module_name);
+    llvm_compiler.write_to_file(&ir_path)?;
+    
+    println!("Generated LLVM IR: {}", ir_path);
+    
+    // Generate executable
+    println!("Generating native executable...");
+    llvm_compiler.create_executable(&module_name)?;
+    
+    println!("Compilation successful!");
     Ok(())
+}
+
+// JIT compile and run function - used for development/testing
+pub fn jit_compile_and_run(source: &str, file_path: &str) -> Result<(), String> {
+    let mut lexer = Lexer::new(source);
+    let tokens = lexer.scan_tokens()?;
+
+    let mut parser = Parser::new(tokens);
+    let statements = parser.parse()?;
+
+    // Create LLVM context and compiler
+    let context = Context::create();
+    let source_path = Path::new(file_path);
+    let file_stem = source_path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy();
+    let module_name = file_stem.to_string();
+    
+    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name);
+    llvm_compiler.compile(statements)?;
+    
+    // Generate IR for debugging
+    let ir_path = format!("{}.ll", module_name);
+    llvm_compiler.write_to_file(&ir_path)?;
+    
+    println!("Generated LLVM IR: {}", ir_path);
+    
+    // JIT compile and run
+    println!("Running the program with JIT...");
+    llvm_compiler.jit_compile_and_run()
 }

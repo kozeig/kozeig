@@ -6,7 +6,7 @@
 
 Lüt (pronounced "loot" or "lewt") is a fun, simple programming language with a clean syntax designed for readability and ease of use. It's an experimental language under active development.
 
-> 26.3% of this codebase is AI Generated; includes .md files, examples and source code for Lüt
+> 24.1% of this codebase is AI Generated; includes .md files, examples and source code for Lüt
 
 ## Project Status
 
@@ -20,8 +20,75 @@ Lüt is currently in early development. While the core features work, you may en
 
 - **Simple, Clean Syntax**: Easy to read and write
 - **Compiled & Interpreted**: Run with `lut run` or compile with `lut build` designed to bridge the gap between languages like Python and C
+- **Native LLVM Compilation**: Generates optimized binaries using the LLVM compiler infrastructure
+- **JIT Execution**: Supports Just-In-Time compilation for quick testing with `lut jit` *Note: this feature is experimental and may be removed later depending on feedback, my own personal preference, or if it gets unecessarily difficult to maintain*
 - **Cross-Platform**: Produces standalone executables that work on multiple platforms
 - **Beginner-Friendly**: Ideal for learning programming concepts
+
+## Installation
+
+Currently, you need to build Lüt from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/frgmt0/lut.git
+cd lut
+
+# Build with the automated script (it installs LLVM if needed)
+./build.sh
+
+# Add the compiler to your PATH or run it directly
+```
+
+### Build Requirements
+
+Lüt requires the following dependencies:
+
+- Rust (latest stable version) - Install from [rust-lang.org](https://www.rust-lang.org/tools/install)
+- LLVM 16 - The build script will install this for you if needed
+- On macOS: Homebrew (for LLVM installation)
+- On Linux: apt package manager (for LLVM installation)
+
+### Build Script
+
+The `build.sh` script handles the following automatically:
+
+1. Detects your operating system (macOS, Linux, or Windows)
+2. Checks if LLVM 16 is installed (required for the compiler)
+3. Installs LLVM 16 if not found:
+   - On macOS: Uses Homebrew to install `llvm@16`
+   - On Linux: Uses apt to install LLVM 16 packages
+   - On Windows: Provides instructions for manual installation
+4. Sets up the required environment variables in your shell profile
+5. Compiles Lüt with optimizations using `cargo build --release`
+
+After running the build script, the compiler will be available at `./target/release/lut`.
+
+### Manual Installation
+
+If the build script doesn't work for your system, you can manually install the requirements:
+
+1. Install LLVM 16 using your package manager or from [LLVM downloads](https://releases.llvm.org/download.html)
+2. Set the environment variable: `export LLVM_SYS_160_PREFIX=/path/to/your/llvm`
+3. Build with Cargo: `cargo build --release`
+
+## Known Issues and Limitations
+
+Lüt is still in early development and has several known issues and limitations:
+
+- Memory management for strings in compiled programs may cause issues in complex cases
+- Limited error reporting and debugging capabilities
+- String concatenation is not yet implemented
+- No support for complex data structures like arrays or maps (COMING SOON THOUGH!)
+- Limited to no standard library and built-in functions (COMING SOON THOUGH!)
+- Type checking is minimal, which can lead to unexpected behavior in some cases
+
+Recent improvements:
+- Arithmetic operations now work correctly with proper type handling
+- Control flow with if/else statements is fully functional
+- Boolean expressions and comparisons are supported
+
+If you encounter issues, please file a bug report so the community can investigate and fix the problem.
 
 ## Quick Start
 
@@ -42,6 +109,9 @@ lut run hello.lut
 # Compile to executable
 lut build hello.lut
 ./hello
+
+# JIT compile and execute
+lut jit hello.lut
 ```
 
 ## Syntax Overview
@@ -64,13 +134,14 @@ Lut has a simple syntax that's easy to learn:
 a : -number 10
 b : -number 5
 
-sum : -add $a, $b
-diff : -sub $a, $b
-product : -mul $a, $b
-quotient : -div $a, $b
-remainder : -mod $a, $b
+sum : $a + $b
+diff : $a - $b
+product : $a * $b
+quotient : $a / $b
+remainder : $a % $b
 
--print -text 'Sum: ', $sum
+-print 'Sum: ', $sum
+-print 'Product: ', $product
 ```
 
 ### ASCII Conversion
@@ -82,36 +153,21 @@ char : -asc 65  @@ Converts ASCII code 65 to 'A'
 
 For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 
-## Installation
-
-Currently, you need to build from source:
-
-```bash
-# Clone the repository
-git clone https://github.com/frgmt0/lut.git
-cd lut
-
-# Build with Cargo
-cargo build --release
-
-# You can add the binary to your PATH or run it directly
-```
-
-## Known Issues
-
-Lüt is still in early development and has several known issues:
-
-- The memory management in compiled programs may cause issues in complex cases
-- Subtraction operations in compiled mode can be unreliable
-- Limited error reporting and debugging capabilities
-
-If you encounter issues, please file a bug report so the community can investigate and fix the problem.
-
 ## Roadmap
 
+### Completed
+- ✅ **Core Arithmetic Operations**: Addition, subtraction, multiplication, division, and modulo
+- ✅ **Basic Control Flow**: If/else conditionals and boolean operations
+- ✅ **Native Compilation**: LLVM-based compiler with JIT support
+
+### In Progress
+- **Type System Improvements**: Better type handling and conversion
+- **Memory Management**: More robust heap memory management for strings
+
+### Future
 - **Improved Error Messages**: Better diagnostics and debugging
-- **More Data Types**: Boolean, lists, maps
-- **Control Flow**: Conditionals and loops
+- **More Data Types**: Lists, maps, and user-defined types
+- **Advanced Control Flow**: Loops and more complex conditionals
 - **Functions & Modules**: Code organization
 - **Standard Library**: Common utilities
 

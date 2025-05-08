@@ -31,17 +31,27 @@ number : -number 42
 
 ### Data Types
 
-Lüt has two primary data types (with more planned):
+Lüt supports the following data types:
 
 1. **Numbers** - Integer values 
    ```
    age : -number 30
+   negative : -number -10
    ```
 
 2. **Text** - String values, enclosed in single quotes
    ```
    name : -text 'John'
+   message : -text 'Hello, world!'
    ```
+
+3. **Boolean** - True/false values
+   ```
+   isValid : true
+   isEmpty : false
+   ```
+   
+   Boolean literals don't need a special command. You can just use `true` or `false` directly.
 
 ### Variable References
 
@@ -97,36 +107,52 @@ letter : -asc 65  @@ Converts to 'A'
 
 ### Arithmetic Operations
 
-Lut supports basic arithmetic operations:
+Lüt supports standard arithmetic operators:
 
 #### Addition
 
 ```
-sum : -add $a, $b
+sum : $a + $b
 ```
 
 #### Subtraction
 
 ```
-difference : -sub $a, $b
+difference : $a - $b
 ```
 
 #### Multiplication
 
 ```
-product : -mul $a, $b
+product : $a * $b
 ```
 
 #### Division
 
 ```
-quotient : -div $a, $b
+quotient : $a / $b
 ```
 
 #### Modulo
 
 ```
-remainder : -mod $a, $b
+remainder : $a % $b
+```
+
+#### Compound Operations
+
+Lüt supports compound operations with proper operator precedence:
+
+```
+result : $a + $b * $c
+```
+
+#### Grouping with Parentheses
+
+You can use parentheses to control the order of operations:
+
+```
+result : ($a + $b) * $c
 ```
 
 ## Line Separators
@@ -155,24 +181,28 @@ a : -number 5
 b : -number 10
 
 @@ Addition
-sum : -add $a, $b
--print -text 'Sum: ', $sum
+sum : $a + $b
+-print 'Sum: ', $sum
 
 @@ Subtraction
-difference : -sub $b, $a
--print -text 'Difference: ', $difference
+difference : $b - $a
+-print 'Difference: ', $difference
 
 @@ Multiplication
-product : -mul $a, $b
--print -text 'Product: ', $product
+product : $a * $b
+-print 'Product: ', $product
 
 @@ Division
-quotient : -div $b, $a
--print -text 'Quotient: ', $quotient
+quotient : $b / $a
+-print 'Quotient: ', $quotient
 
 @@ Modulo
-remainder : -mod $b, $a
--print -text 'Remainder: ', $remainder
+remainder : $b % $a
+-print 'Remainder: ', $remainder
+
+@@ Compound operation
+compound : ($a + $b) * 2
+-print 'Compound: ($a + $b) * 2 = ', $compound
 ```
 
 ### ASCII Conversion
@@ -224,14 +254,14 @@ This creates an executable file named after your program that can be run directl
 
 ### If-Else Statements
 
-Lüt supports conditional execution with if-else statements, using the command syntax:
+Lüt supports conditional execution with if-else statements:
 
 ```lut
--if expression
+if <expression> {
     @@ then branch statements
--else
+} else {
     @@ else branch statements (optional)
--end
+}
 ```
 
 If statements evaluate an expression, and if the expression is "truthy" (non-zero, non-empty, or true), the then branch is executed. Otherwise, the else branch is executed if it exists.
@@ -241,11 +271,11 @@ Example:
 ```lut
 age : -number 25
 
--if $age >= 18
+if $age >= 18 {
     -print 'You are an adult'
--else
+} else {
     -print 'You are under 18'
--end
+}
 ```
 
 Nested if statements are also supported:
@@ -253,21 +283,61 @@ Nested if statements are also supported:
 ```lut
 score : -number 85
 
--if $score >= 60
+if $score >= 60 {
     -print 'You passed!'
     
-    -if $score >= 90
+    if $score >= 90 {
         -print 'Excellent job!'
-    -else
+    } else {
         -print 'Good job!'
-    -end
--else
+    }
+} else {
     -print 'You failed.'
--end
+}
+```
+
+### Comparison Operators
+
+Lüt supports the following comparison operators:
+
+- `==` - Equal to
+- `!=` - Not equal to
+- `<` - Less than
+- `<=` - Less than or equal to
+- `>` - Greater than
+- `>=` - Greater than or equal to
+
+Example:
+
+```lut
+a : -number 10
+b : -number 20
+
+if $a < $b {
+    -print '$a is less than $b'
+}
+
+if $a == $b {
+    -print '$a is equal to $b'
+} else {
+    -print '$a is not equal to $b'
+}
 ```
 
 ## Implementation Details
 
-Lüt is implemented in Rust and compiles to efficient native code through an intermediate C representation. The runtime includes a stack-based virtual machine that executes bytecode instructions derived from your Lüt source code. While this is not the most efficient or ideal way to do things, it is more fun than strangling myself.
+Lüt is now implemented as a true compiler that uses LLVM through the Inkwell Rust bindings. This gives several advantages:
 
-I am working on a more efficient and robust compiler, but it is not yet ready for use. Contributions are welcome!
+1. **Native Compilation**: Lüt programs are compiled directly to efficient native machine code without any intermediate language.
+2. **Just-In-Time (JIT) Execution**: The `lut jit` command compiles and immediately executes your program without creating an executable file.
+3. **Ahead-of-Time (AOT) Compilation**: The `lut build` command creates optimized standalone executables.
+4. **LLVM Optimizations**: Benefit from LLVM's powerful optimization passes for better performance.
+
+The compiler works by:
+1. Lexing the source code into tokens
+2. Parsing the tokens into an abstract syntax tree (AST)
+3. Generating LLVM IR (Intermediate Representation) from the AST
+4. Optimizing the LLVM IR
+5. Generating native machine code for the target platform
+
+Contributions are welcome to improve the compiler, add new language features, or enhance the standard library!
