@@ -8,20 +8,23 @@ pub enum TokenType {
     Text,            // string literal
     Variable,        // variable reference with '$'
     Boolean,         // boolean literal (true/false)
-    
+    If,              // 'if' keyword
+    Else,            // 'else' keyword
+
     // Symbols
     Colon,           // ':'
     DoubleColon,     // '::'
     Comma,           // ','
     Semicolon,       // ';'
-    
+    QuestionMark,    // '?'
+
     // Arithmetic operators
     Plus,            // '+'
     Minus,           // '-'
     Star,            // '*'
     Slash,           // '/'
     Percent,         // '%'
-    
+
     // Comparison operators
     Equal,           // '=='
     NotEqual,        // '!='
@@ -29,20 +32,22 @@ pub enum TokenType {
     Less,            // '<'
     GreaterEqual,    // '>='
     LessEqual,       // '<='
-    
+
     // Logical operators
     And,             // '&&'
     Or,              // '||'
     Not,             // '!'
-    
+
     // Grouping
     LeftParen,       // '('
     RightParen,      // ')'
-    
+    LeftBrace,       // '{'
+    RightBrace,      // '}'
+
     // Comments and whitespace
     Comment,         // '@@'
     Newline,
-    
+
     // End of file
     EOF,
 }
@@ -95,7 +100,7 @@ impl Lexer {
     
     fn scan_token(&mut self) -> Result<(), String> {
         let c = self.advance();
-        
+
         match c {
             ' ' | '\t' | '\r' => (),
             '\n' => {
@@ -110,6 +115,7 @@ impl Lexer {
                     self.tokens.push(Token::new(TokenType::Colon, ":".to_string(), self.line));
                 }
             },
+            '?' => self.tokens.push(Token::new(TokenType::QuestionMark, "?".to_string(), self.line)),
             ',' => self.tokens.push(Token::new(TokenType::Comma, ",".to_string(), self.line)),
             ';' => {
                 // Handle semicolons - check for double semicolon (;;)
@@ -120,7 +126,7 @@ impl Lexer {
                 }
             },
             '$' => self.variable(),
-            '\'' => self.string(),
+            '\'' => self.string()?,
             '@' => {
                 if self.match_char('@') {
                     // Comment
@@ -134,20 +140,8 @@ impl Lexer {
                 }
             },
             '-' => {
-                // Check if this is a command (starts with a letter) or a unary minus
-                if self.peek().is_alphabetic() {
-                    // Command
-                    while self.peek().is_alphabetic() && !self.is_at_end() {
-                        self.advance();
-                    }
-                    let command = self.source[self.start..self.current].iter().collect::<String>();
-                    
-                    // All hyphen-prefixed words are just commands
-                    self.tokens.push(Token::new(TokenType::Command, command, self.line));
-                } else {
-                    // Unary minus or minus operator
-                    self.tokens.push(Token::new(TokenType::Minus, "-".to_string(), self.line));
-                }
+                // Just handle as minus operator
+                self.tokens.push(Token::new(TokenType::Minus, "-".to_string(), self.line));
             },
             '+' => self.tokens.push(Token::new(TokenType::Plus, "+".to_string(), self.line)),
             '*' => self.tokens.push(Token::new(TokenType::Star, "*".to_string(), self.line)),
@@ -155,6 +149,8 @@ impl Lexer {
             '%' => self.tokens.push(Token::new(TokenType::Percent, "%".to_string(), self.line)),
             '(' => self.tokens.push(Token::new(TokenType::LeftParen, "(".to_string(), self.line)),
             ')' => self.tokens.push(Token::new(TokenType::RightParen, ")".to_string(), self.line)),
+            '{' => self.tokens.push(Token::new(TokenType::LeftBrace, "{".to_string(), self.line)),
+            '}' => self.tokens.push(Token::new(TokenType::RightBrace, "}".to_string(), self.line)),
             '=' => {
                 if self.match_char('=') {
                     self.tokens.push(Token::new(TokenType::Equal, "==".to_string(), self.line));
@@ -215,12 +211,15 @@ impl Lexer {
         while (self.peek().is_alphanumeric() || self.peek() == '_') && !self.is_at_end() {
             self.advance();
         }
-        
+
         let text: String = self.source[self.start..self.current].iter().collect();
-        
+
         // Check for reserved keywords
         match text.as_str() {
             "true" | "false" => self.tokens.push(Token::new(TokenType::Boolean, text, self.line)),
+            "if" => self.tokens.push(Token::new(TokenType::If, text, self.line)),
+            "else" => self.tokens.push(Token::new(TokenType::Else, text, self.line)),
+            "print" | "text" | "number" | "bool" | "asc" => self.tokens.push(Token::new(TokenType::Command, text, self.line)),
             _ => self.tokens.push(Token::new(TokenType::Register, text, self.line)),
         }
     }
@@ -234,24 +233,26 @@ impl Lexer {
         self.tokens.push(Token::new(TokenType::Number, value, self.line));
     }
     
-    fn string(&mut self) {
+    fn string(&mut self) -> Result<(), String> {
         while self.peek() != '\'' && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1;
             }
             self.advance();
         }
-        
+
         if self.is_at_end() {
-            panic!("Unterminated string at line {}", self.line);
+            return Err(format!("Unterminated string at line {}", self.line));
         }
-        
+
         // Closing quote
         self.advance();
-        
+
         // Extract the string value (without the quotes)
         let value: String = self.source[self.start + 1..self.current - 1].iter().collect();
         self.tokens.push(Token::new(TokenType::Text, value, self.line));
+
+        Ok(())
     }
     
     fn variable(&mut self) {

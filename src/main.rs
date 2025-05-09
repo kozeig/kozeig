@@ -9,15 +9,59 @@ mod compiler;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() < 2 {
-        eprintln!("Usage: lut [build|run|jit] <file>");
+        eprintln!("Usage: lut [build|run|jit|debug] <file>");
         process::exit(1);
     }
-    
+
     let command = &args[1];
-    
+
     match command.as_str() {
+        "debug" => {
+            if args.len() < 3 {
+                eprintln!("Usage: lut debug <file>");
+                process::exit(1);
+            }
+            let file_path = &args[2];
+
+            match fs::read_to_string(file_path) {
+                Ok(source) => {
+                    // Parse the file and print the AST for debugging
+                    let mut lexer = lexer::Lexer::new(&source);
+                    match lexer.scan_tokens() {
+                        Ok(tokens) => {
+                            println!("Tokens:");
+                            for token in &tokens {
+                                println!("{:?}: {:?}", token.token_type, token.lexeme);
+                            }
+
+                            let mut parser = parser::Parser::new(tokens);
+                            match parser.parse() {
+                                Ok(statements) => {
+                                    println!("\nParsed AST:");
+                                    for stmt in &statements {
+                                        println!("{:#?}", stmt);
+                                    }
+                                },
+                                Err(e) => {
+                                    eprintln!("Parse error: {}", e);
+                                    process::exit(1);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            eprintln!("Lexer error: {}", e);
+                            process::exit(1);
+                        }
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Error reading file '{}': {}", file_path, e);
+                    process::exit(1);
+                }
+            }
+        },
         "build" => {
             if args.len() < 3 {
                 eprintln!("Usage: lut build <file>");

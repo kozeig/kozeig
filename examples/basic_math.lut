@@ -1,0 +1,36 @@
+@@ Basic Math Test
+@@ Testing basic arithmetic operations with the updated compiler
+
+@@ Define variables
+a : -number 10
+b : -number 5
+
+@@ Basic operations
+sum : $a + $b
+difference : $a - $b 
+product : $a * $b
+quotient : $a / $b
+remainder : $a % $b
+
+@@ Print results
+-print 'Sum: ', $sum
+-print 'Difference: ', $difference
+-print 'Product: ', $product 
+-print 'Quotient: ', $quotient
+-print 'Remainder: ', $remainder
+
+@@ Test compound operations
+compound1 : $a + ($b * 2)
+-print 'Compound 1: ', $a, ' + (', $b, ' * 2) = ', $compound1
+
+@@ Test with a variable that holds the result of another operation
+compound2 : $sum + $difference
+-print 'Compound 2: ', $sum, ' + ', $difference, ' = ', $compound2
+
+@@ Test type conversion
+text_a : -text $a
+text_b : -text $b
+-print 'Text a + Text b: ', $text_a, ' + ', $text_b
+
+@@ Test direct operations
+-print 'Direct: 20 + 30 = ', 20 + 30

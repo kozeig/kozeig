@@ -23,6 +23,11 @@ pub enum Expr {
     Grouping {
         expression: Box<Expr>,
     },
+    Ternary {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -83,155 +88,156 @@ impl Parser {
     }
     
     fn declaration(&mut self) -> Result<Stmt, String> {
-        
+        // Handle the 'if' keyword for the new syntax
+        if self.match_token(TokenType::If) {
+            return self.if_statement();
+        }
+
         if self.match_token(TokenType::Register) {
             let name = self.previous().lexeme.clone();
-            
+
             self.consume(TokenType::Colon, "Expect ':' after register name.")?;
-            
+
             // Skip any whitespace
             while self.match_token(TokenType::Newline) {}
-            
-            let initializer = self.expression()?;
-            
-            return Ok(Stmt::Declaration {
-                name,
-                initializer,
-            });
+
+            // Check for the new bracket syntax
+            if self.match_token(TokenType::LeftBrace) {
+                // We've got a type command with arguments in curly braces
+                if self.match_token(TokenType::Command) {
+                    let type_cmd = self.previous().lexeme.clone();
+
+                    // Parse the value
+                    let value = self.expression()?;
+
+                    // Expect closing brace
+                    self.consume(TokenType::RightBrace, "Expect '}' after type expression")?;
+
+                    // Create a command expression for the type operation
+                    let initializer = Expr::Command {
+                        name: type_cmd,
+                        args: vec![value],
+                    };
+
+                    return Ok(Stmt::Declaration {
+                        name,
+                        initializer,
+                    });
+                } else {
+                    return Err("Expected type command after '{'".to_string());
+                }
+            } else {
+                // Handle the direct value case (boolean literals, arithmetic expressions, etc.)
+                let initializer = self.expression()?;
+
+                return Ok(Stmt::Declaration {
+                    name,
+                    initializer,
+                });
+            }
         }
-        
+
         if self.match_token(TokenType::Command) {
             let command = self.previous().lexeme.clone();
-            
-            if command == "-print" {
+
+            // Check for the new command syntax with curly braces
+            if self.match_token(TokenType::LeftBrace) {
                 let mut args = Vec::new();
-                
-                // Handle arguments
-                if !self.check(TokenType::Newline) && !self.check(TokenType::EOF) && !self.check(TokenType::Semicolon) {
+
+                // Parse command arguments
+                if !self.check(TokenType::RightBrace) {
                     args.push(self.expression()?);
-                    
+
                     while self.match_token(TokenType::Comma) {
                         args.push(self.expression()?);
                     }
                 }
-                
-                return Ok(Stmt::Print(args));
-            } else if command == "-if" {
-                // For the simple if command, the condition comes directly after
-                // Parse the condition expression
-                let condition = self.expression()?;
-                
-                // Skip any newlines after the condition
-                while self.match_token(TokenType::Newline) {}
-                
-                // Skip any newlines
-                while self.match_token(TokenType::Newline) {}
-                
-                // Parse the then branch
-                let mut then_branch = Vec::new();
-                
-                // Parse statements until we hit -else or -end or EOF
-                while !self.is_at_end() && 
-                      !(self.check(TokenType::Command) && 
-                        (self.peek().lexeme == "-else" || self.peek().lexeme == "-end")) {
-                    // Skip newlines
-                    if self.match_token(TokenType::Newline) {
-                        continue;
-                    }
-                    
-                    // If we're at the end, just break out
-                    if self.is_at_end() || self.peek().token_type == TokenType::EOF {
-                        break;
-                    }
-                    
-                    let stmt = self.declaration()?;
-                    then_branch.push(stmt);
-                }
-                
-                // Check for else block
-                let else_branch = if self.check(TokenType::Command) && self.peek().lexeme == "-else" {
-                    // Consume -else
-                    self.advance();
-                    
-                    // Skip any newlines
-                    while self.match_token(TokenType::Newline) {}
-                    
-                    let mut else_statements = Vec::new();
-                    
-                    // Parse statements until we hit -end or EOF
-                    while !self.is_at_end() && 
-                          !(self.check(TokenType::Command) && self.peek().lexeme == "-end") {
-                        // Skip newlines
-                        if self.match_token(TokenType::Newline) {
-                            continue;
-                        }
-                        
-                        // If we're at the end, just break out
-                        if self.is_at_end() || self.peek().token_type == TokenType::EOF {
-                            break;
-                        }
-                        
-                        let stmt = self.declaration()?;
-                        else_statements.push(stmt);
-                    }
-                    
-                    Some(else_statements)
+
+                // Expect the closing brace
+                self.consume(TokenType::RightBrace, "Expect '}' after command arguments")?;
+
+                // Handle print command
+                if command == "print" {
+                    return Ok(Stmt::Print(args));
                 } else {
-                    None
-                };
-                
-                // Expect -end or EOF
-                if self.is_at_end() || self.peek().token_type == TokenType::EOF {
-                    // If we've reached the end of the file, just accept it
-                } else if !self.check(TokenType::Command) || self.peek().lexeme != "-end" {
-                    // If we're not at EOF and not at -end, that's a problem
-                    return Err(format!("Expected '-end' to close if block, got {:?}", 
-                        self.peek().token_type));
-                } else {
-                    // Consume -end if it exists
-                    self.advance();
+                    return Ok(Stmt::Command {
+                        name: command,
+                        args,
+                    });
                 }
-                
-                return Ok(Stmt::If {
-                    condition,
-                    then_branch,
-                    else_branch,
-                });
             } else {
-                // Other commands
-                let mut args = Vec::new();
-                
-                // Special handling for -asc which requires exactly one numeric argument
-                if command == "-asc" && self.match_token(TokenType::Number) {
-                    let value = self.previous().lexeme.parse::<i64>().unwrap();
-                    args.push(Expr::NumberLiteral(value));
-                }
-                // Handle arguments if any for other commands
-                else if !self.check(TokenType::Newline) && !self.check(TokenType::EOF) && !self.check(TokenType::Semicolon) {
-                    args.push(self.expression()?);
-                    
-                    while self.match_token(TokenType::Comma) {
-                        args.push(self.expression()?);
-                    }
-                }
-                
-                // Print debug info for unknown commands
-                println!("DEBUG: Handling command: {}", command);
-                
-                return Ok(Stmt::Command {
-                    name: command,
-                    args,
-                });
+                // No left brace found - this is an error in the new syntax
+                return Err(format!("Expected '{{' after command '{}'", command));
             }
         }
         
         self.expression_statement()
     }
     
-    // We've removed the BlockParser struct and its implementation since we're using
-    // command-style (-if, -else, -end) for if/else statements
-    
-    
+    // Parse an if statement with the newer syntax: if condition { ... } else { ... }
+    fn if_statement(&mut self) -> Result<Stmt, String> {
+        // Parse the condition
+        let condition = self.expression()?;
+
+        // Expect a left brace after the condition
+        self.consume(TokenType::LeftBrace, "Expect '{' after if condition")?;
+
+        // Skip any newlines after the left brace
+        while self.match_token(TokenType::Newline) {}
+
+        // Parse the then branch statements
+        let mut then_branch = Vec::new();
+
+        // Continue until we hit a right brace or EOF
+        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            // Skip newlines
+            if self.match_token(TokenType::Newline) {
+                continue;
+            }
+
+            let stmt = self.declaration()?;
+            then_branch.push(stmt);
+        }
+
+        // Consume the closing brace
+        self.consume(TokenType::RightBrace, "Expect '}' after if body")?;
+
+        // Check for an else clause
+        let else_branch = if self.match_token(TokenType::Else) {
+            // Consume the opening brace
+            self.consume(TokenType::LeftBrace, "Expect '{' after else")?;
+
+            // Skip any newlines
+            while self.match_token(TokenType::Newline) {}
+
+            let mut else_statements = Vec::new();
+
+            // Continue until we hit a right brace or EOF
+            while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+                // Skip newlines
+                if self.match_token(TokenType::Newline) {
+                    continue;
+                }
+
+                let stmt = self.declaration()?;
+                else_statements.push(stmt);
+            }
+
+            // Consume the closing brace
+            self.consume(TokenType::RightBrace, "Expect '}' after else body")?;
+
+            Some(else_statements)
+        } else {
+            None
+        };
+
+        Ok(Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+        })
+    }
+
     fn check_command(&self, name: &str) -> bool {
         if self.is_at_end() {
             return false;
@@ -272,12 +278,39 @@ impl Parser {
     }
     
     fn expression(&mut self) -> Result<Expr, String> {
-        self.logical_or()
+        self.conditional()
     }
-    
+
+    fn conditional(&mut self) -> Result<Expr, String> {
+        // Parse the condition part
+        let expr = self.logical_or()?;
+
+        // Check if this is a ternary expression
+        if self.match_token(TokenType::QuestionMark) {
+            // Parse the "then" branch
+            let then_branch = self.expression()?;
+
+            // Expect a colon
+            self.consume(TokenType::Colon, "Expect ':' in ternary expression")?;
+
+            // Parse the "else" branch
+            let else_branch = self.conditional()?;
+
+            // Create and return the ternary expression
+            return Ok(Expr::Ternary {
+                condition: Box::new(expr),
+                then_branch: Box::new(then_branch),
+                else_branch: Box::new(else_branch),
+            });
+        }
+
+        // Not a ternary expression, just return the parsed expression
+        Ok(expr)
+    }
+
     fn logical_or(&mut self) -> Result<Expr, String> {
         let mut expr = self.logical_and()?;
-        
+
         while self.match_token(TokenType::Or) {
             let operator = self.previous().clone();
             let right = self.logical_and()?;
@@ -287,7 +320,7 @@ impl Parser {
                 right: Box::new(right),
             };
         }
-        
+
         Ok(expr)
     }
     
@@ -421,21 +454,31 @@ impl Parser {
         if self.match_token(TokenType::Command) {
             let name = self.previous().lexeme.clone();
             let mut args = Vec::new();
-            
-            // Handle specific commands that require exactly one numeric argument
-            if name == "-asc" && self.match_token(TokenType::Number) {
+
+            // Check for the new command syntax with curly braces
+            if self.match_token(TokenType::LeftBrace) {
+                // Parse command arguments
+                if !self.check(TokenType::RightBrace) {
+                    args.push(self.expression()?);
+
+                    while self.match_token(TokenType::Comma) {
+                        args.push(self.expression()?);
+                    }
+                }
+
+                // Expect the closing brace
+                self.consume(TokenType::RightBrace, "Expect '}' after command arguments")?;
+            }
+            // Backward compatibility for -asc command
+            else if name == "asc" && self.match_token(TokenType::Number) {
                 let value = self.previous().lexeme.parse::<i64>().unwrap();
                 args.push(Expr::NumberLiteral(value));
             }
-            // Handle other commands
-            else if !self.check(TokenType::Newline) && !self.check(TokenType::EOF) && !self.check(TokenType::Semicolon) {
-                args.push(self.expression()?);
-                
-                while self.match_token(TokenType::Comma) {
-                    args.push(self.expression()?);
-                }
+            // Error case - no left brace found
+            else {
+                return Err(format!("Expected '{{' after command '{}' in expression", name));
             }
-            
+
             return Ok(Expr::Command {
                 name,
                 args,

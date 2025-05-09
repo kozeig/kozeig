@@ -40,6 +40,14 @@ pub struct LLVMCompiler<'ctx> {
 }
 
 impl<'ctx> LLVMCompiler<'ctx> {
+    // Helper function to handle LLVM errors more gracefully
+    fn handle_llvm_err<T, E>(&self, result: Result<T, E>, operation: &str) -> Result<T, String>
+    where
+        E: std::fmt::Display
+    {
+        result.map_err(|e| format!("LLVM error during {}: {}", operation, e))
+    }
+
     pub fn new(context: &'ctx Context, module_name: &str) -> Self {
         // Initialize LLVM targets
         Target::initialize_all(&InitializationConfig::default());
@@ -135,15 +143,35 @@ impl<'ctx> LLVMCompiler<'ctx> {
     fn compile_statement(&mut self, stmt: Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Declaration { name, initializer } => {
+                // Check the initializer type before moving it
+                let is_boolean_expr = match &initializer {
+                    Expr::BooleanLiteral(_) => true,
+                    Expr::Binary { operator, .. } => {
+                        // Check if this is a comparison operator
+                        matches!(
+                            operator.token_type,
+                            TokenType::Equal | TokenType::NotEqual | TokenType::Less |
+                            TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual |
+                            TokenType::And | TokenType::Or
+                        )
+                    },
+                    _ => false
+                };
+
                 // Create a variable (alloca) in the entry block
                 let value = self.compile_expression(initializer)?;
-                
+
                 // Create the appropriate type of alloca based on the value type
                 let (ptr, var_type) = match value {
                     BasicValueEnum::IntValue(_) => {
-                        // For numbers, use i64 type
+                        // For both integers and booleans, use i64 type
                         let ptr = self.create_entry_block_alloca(&name);
-                        (ptr, VariableType::Integer)
+
+                        if is_boolean_expr {
+                            (ptr, VariableType::Boolean)
+                        } else {
+                            (ptr, VariableType::Integer)
+                        }
                     },
                     BasicValueEnum::PointerValue(_) => {
                         // For strings, use pointer type
@@ -163,7 +191,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
             },
             Stmt::Command { name, args } => {
                 match name.as_str() {
-                    "-print" => {
+                    "print" | "-print" => {
                         for (i, arg) in args.iter().enumerate() {
                             let value = self.compile_expression(arg.clone())?;
                             self.print_value(value)?;
@@ -265,13 +293,81 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     fn compile_expression(&mut self, expr: Expr) -> Result<BasicValueEnum<'ctx>, String> {
         match expr {
+            Expr::Ternary { condition, then_branch, else_branch } => {
+                // Compile the condition
+                let condition_val = self.compile_expression(*condition)?;
+
+                // Convert condition to boolean (0 or 1)
+                let condition_int = match condition_val {
+                    BasicValueEnum::IntValue(int_val) => int_val,
+                    _ => return Err("Expected integer value for ternary condition".to_string())
+                };
+
+                // Compare condition with 0 to get a boolean value
+                let zero = self.i64_type.const_int(0, false);
+                let condition_bool = self.builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    condition_int,
+                    zero,
+                    "ternary_cond"
+                ).unwrap();
+
+                // Create the necessary basic blocks
+                let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                let then_block = self.context.append_basic_block(current_function, "ternary_then");
+                let else_block = self.context.append_basic_block(current_function, "ternary_else");
+                let merge_block = self.context.append_basic_block(current_function, "ternary_merge");
+
+                // Branch based on the condition
+                self.builder.build_conditional_branch(condition_bool, then_block, else_block).unwrap();
+
+                // Build the then block
+                self.builder.position_at_end(then_block);
+                let then_value = self.compile_expression(*then_branch)?;
+                let then_block_end = self.builder.get_insert_block().unwrap();
+                self.builder.build_unconditional_branch(merge_block).unwrap();
+
+                // Build the else block
+                self.builder.position_at_end(else_block);
+                let else_value = self.compile_expression(*else_branch)?;
+                let else_block_end = self.builder.get_insert_block().unwrap();
+                self.builder.build_unconditional_branch(merge_block).unwrap();
+
+                // Merge block with phi node
+                self.builder.position_at_end(merge_block);
+
+                // Create a phi node for the result
+                // The type depends on which branch was taken
+                match (then_value, else_value) {
+                    (BasicValueEnum::IntValue(then_int), BasicValueEnum::IntValue(else_int)) => {
+                        // Both branches return integers
+                        let phi = self.builder.build_phi(self.i64_type, "ternary_result").unwrap();
+                        phi.add_incoming(&[
+                            (&then_int, then_block_end),
+                            (&else_int, else_block_end)
+                        ]);
+                        Ok(phi.as_basic_value())
+                    },
+                    (BasicValueEnum::PointerValue(then_ptr), BasicValueEnum::PointerValue(else_ptr)) => {
+                        // Both branches return pointers (strings)
+                        let ptr_type = self.context.ptr_type(AddressSpace::default());
+                        let phi = self.builder.build_phi(ptr_type, "ternary_result").unwrap();
+                        phi.add_incoming(&[
+                            (&then_ptr, then_block_end),
+                            (&else_ptr, else_block_end)
+                        ]);
+                        Ok(phi.as_basic_value())
+                    },
+                    _ => Err("Ternary branches must return the same type".to_string())
+                }
+            },
             Expr::VariableRef(name) => {
                 if name.starts_with('$') {
                     let var_name = name[1..].to_string();
                     if let Some(ptr) = self.variables.get(&var_name) {
                         // Get the variable pointer
                         let ptr_val = *ptr;
-                        
+
                         // Use the variable_types map to determine how to load the value
                         match self.variable_types.get(&var_name) {
                             Some(VariableType::Integer) | Some(VariableType::Boolean) => {
@@ -391,12 +487,104 @@ impl<'ctx> LLVMCompiler<'ctx> {
                         Ok(result.into())
                     },
                     TokenType::Slash => {
-                        let result = self.builder.build_int_signed_div(left_int, right_int, "div").unwrap();
-                        Ok(result.into())
+                        // Add division by zero check
+                        let zero = self.i64_type.const_int(0, false);
+                        let is_zero = self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ,
+                            right_int,
+                            zero,
+                            "is_zero"
+                        ).unwrap();
+
+                        // Create basic blocks for division and division by zero error
+                        let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                        let div_block = self.context.append_basic_block(current_function, "div");
+                        let div_by_zero_block = self.context.append_basic_block(current_function, "div_by_zero");
+                        let cont_block = self.context.append_basic_block(current_function, "div_cont");
+
+                        // Branch based on zero check
+                        self.builder.build_conditional_branch(is_zero, div_by_zero_block, div_block).unwrap();
+
+                        // Division block
+                        self.builder.position_at_end(div_block);
+                        let div_result = self.builder.build_int_signed_div(left_int, right_int, "div").unwrap();
+                        self.builder.build_unconditional_branch(cont_block).unwrap();
+                        let div_block_end = self.builder.get_insert_block().unwrap();
+
+                        // Division by zero error block
+                        self.builder.position_at_end(div_by_zero_block);
+
+                        // Print error message
+                        let error_msg = "Runtime error: Division by zero\n";
+                        let error_ptr = self.create_string_literal(error_msg);
+                        self.builder.build_call(
+                            self.printf_func,
+                            &[error_ptr.into()],
+                            "div_zero_error_msg"
+                        ).unwrap();
+
+                        // Exit with error code
+                        let exit_code = self.context.i32_type().const_int(1, false);
+                        self.builder.build_return(Some(&exit_code)).unwrap();
+
+                        // Continue block for normal execution
+                        self.builder.position_at_end(cont_block);
+
+                        // Phi node to select the appropriate result
+                        let phi = self.builder.build_phi(self.i64_type, "div_result").unwrap();
+                        phi.add_incoming(&[(&div_result, div_block_end)]);
+
+                        Ok(phi.as_basic_value())
                     },
                     TokenType::Percent => {
-                        let result = self.builder.build_int_signed_rem(left_int, right_int, "mod").unwrap();
-                        Ok(result.into())
+                        // Add modulo by zero check
+                        let zero = self.i64_type.const_int(0, false);
+                        let is_zero = self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ,
+                            right_int,
+                            zero,
+                            "is_zero"
+                        ).unwrap();
+
+                        // Create basic blocks for modulo and modulo by zero error
+                        let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                        let mod_block = self.context.append_basic_block(current_function, "mod");
+                        let mod_by_zero_block = self.context.append_basic_block(current_function, "mod_by_zero");
+                        let cont_block = self.context.append_basic_block(current_function, "mod_cont");
+
+                        // Branch based on zero check
+                        self.builder.build_conditional_branch(is_zero, mod_by_zero_block, mod_block).unwrap();
+
+                        // Modulo block
+                        self.builder.position_at_end(mod_block);
+                        let mod_result = self.builder.build_int_signed_rem(left_int, right_int, "mod").unwrap();
+                        self.builder.build_unconditional_branch(cont_block).unwrap();
+                        let mod_block_end = self.builder.get_insert_block().unwrap();
+
+                        // Modulo by zero error block
+                        self.builder.position_at_end(mod_by_zero_block);
+
+                        // Print error message
+                        let error_msg = "Runtime error: Modulo by zero\n";
+                        let error_ptr = self.create_string_literal(error_msg);
+                        self.builder.build_call(
+                            self.printf_func,
+                            &[error_ptr.into()],
+                            "mod_zero_error_msg"
+                        ).unwrap();
+
+                        // Exit with error code
+                        let exit_code = self.context.i32_type().const_int(1, false);
+                        self.builder.build_return(Some(&exit_code)).unwrap();
+
+                        // Continue block for normal execution
+                        self.builder.position_at_end(cont_block);
+
+                        // Phi node to select the appropriate result
+                        let phi = self.builder.build_phi(self.i64_type, "mod_result").unwrap();
+                        phi.add_incoming(&[(&mod_result, mod_block_end)]);
+
+                        Ok(phi.as_basic_value())
                     },
                     // Comparison operators
                     TokenType::Equal => {
@@ -452,11 +640,65 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     },
                     TokenType::GreaterEqual => {
                         let result = self.builder.build_int_compare(
-                            inkwell::IntPredicate::SGE, 
-                            left_int, 
-                            right_int, 
+                            inkwell::IntPredicate::SGE,
+                            left_int,
+                            right_int,
                             "ge"
                         ).unwrap();
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    TokenType::And => {
+                        // Convert both operands to boolean values first (0 = false, non-zero = true)
+                        let zero = self.i64_type.const_int(0, false);
+
+                        // Compare left with 0
+                        let left_bool = self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            left_int,
+                            zero,
+                            "left_bool"
+                        ).unwrap();
+
+                        // Compare right with 0
+                        let right_bool = self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            right_int,
+                            zero,
+                            "right_bool"
+                        ).unwrap();
+
+                        // Logical AND of the two boolean values
+                        let result = self.builder.build_and(left_bool, right_bool, "and").unwrap();
+
+                        // Convert i1 to i64
+                        let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
+                        Ok(result_ext.into())
+                    },
+                    TokenType::Or => {
+                        // Convert both operands to boolean values first (0 = false, non-zero = true)
+                        let zero = self.i64_type.const_int(0, false);
+
+                        // Compare left with 0
+                        let left_bool = self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            left_int,
+                            zero,
+                            "left_bool"
+                        ).unwrap();
+
+                        // Compare right with 0
+                        let right_bool = self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            right_int,
+                            zero,
+                            "right_bool"
+                        ).unwrap();
+
+                        // Logical OR of the two boolean values
+                        let result = self.builder.build_or(left_bool, right_bool, "or").unwrap();
+
+                        // Convert i1 to i64
                         let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
                         Ok(result_ext.into())
                     },
@@ -465,11 +707,11 @@ impl<'ctx> LLVMCompiler<'ctx> {
             },
             Expr::Command { name, args } => {
                 match name.as_str() {
-                    "-text" => {
+                    "text" | "-text" => {
                         if args.len() != 1 {
                             return Err("Text command expects one argument".to_string());
                         }
-                        
+
                         // If the argument is already a string literal, just return that
                         match &args[0] {
                             Expr::TextLiteral(value) => {
@@ -491,18 +733,18 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                         // First create a format string for sprintf
                                         let format = "%lld";
                                         let format_ptr = self.create_string_literal(format);
-                                        
+
                                         // Allocate buffer for result (20 chars should be enough for int64)
                                         let buffer_size = 20;
                                         let buffer = self.allocate_string(buffer_size);
-                                        
+
                                         // Call sprintf
                                         self.builder.build_call(
                                             self.sprintf_func,
                                             &[buffer.into(), format_ptr.into(), int_val.into()],
                                             "sprintf_call"
                                         ).unwrap();
-                                        
+
                                         // Result is a string (pointer)
                                         Ok(buffer.into())
                                     },
@@ -511,7 +753,68 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             }
                         }
                     },
-                    "-number" => {
+                    "bool" | "-bool" => {
+                        if args.len() != 1 {
+                            return Err("Boolean command expects one argument".to_string());
+                        }
+
+                        // Compile the argument expression
+                        let value = self.compile_expression(args[0].clone())?;
+
+                        match value {
+                            // If it's already an integer (which includes booleans in our implementation)
+                            BasicValueEnum::IntValue(int_val) => {
+                                // Compare with 0 to get a boolean value (0 = false, anything else = true)
+                                let zero = self.i64_type.const_int(0, false);
+                                let result = self.builder.build_int_compare(
+                                    inkwell::IntPredicate::NE,
+                                    int_val,
+                                    zero,
+                                    "bool_conv"
+                                ).unwrap();
+
+                                // Convert i1 to i64
+                                let result_ext = self.builder.build_int_z_extend(
+                                    result,
+                                    self.i64_type,
+                                    "zext_bool"
+                                ).unwrap();
+
+                                Ok(result_ext.into())
+                            },
+                            // If it's a string, check if it's empty
+                            BasicValueEnum::PointerValue(ptr_val) => {
+                                // Call strlen to get string length
+                                let length = self.builder.build_call(
+                                    self.strlen_func,
+                                    &[ptr_val.into()],
+                                    "strlen_call"
+                                ).unwrap();
+
+                                let length_val = length.try_as_basic_value().left().unwrap().into_int_value();
+
+                                // Compare length with 0
+                                let zero = self.i64_type.const_int(0, false);
+                                let is_nonempty = self.builder.build_int_compare(
+                                    inkwell::IntPredicate::NE,
+                                    length_val,
+                                    zero,
+                                    "str_nonempty"
+                                ).unwrap();
+
+                                // Convert i1 to i64
+                                let result = self.builder.build_int_z_extend(
+                                    is_nonempty,
+                                    self.i64_type,
+                                    "zext_bool"
+                                ).unwrap();
+
+                                Ok(result.into())
+                            },
+                            _ => Err("Cannot convert value to boolean".to_string())
+                        }
+                    },
+                    "number" | "-number" => {
                         if args.len() != 1 {
                             return Err("Number command expects one argument".to_string());
                         }
@@ -541,7 +844,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             _ => Err("Cannot convert value to number".to_string())
                         }
                     },
-                    "-asc" => {
+                    "asc" | "-asc" => {
                         if args.len() != 1 {
                             return Err("Asc command expects one argument".to_string());
                         }
@@ -709,32 +1012,40 @@ impl<'ctx> LLVMCompiler<'ctx> {
     fn print_value(&self, value: BasicValueEnum<'ctx>) -> Result<(), String> {
         // Create a unique printf call id to avoid name conflicts
         let call_id = format!("printf_call_{}", self.module.get_globals().count());
-        
+
         match value {
             BasicValueEnum::IntValue(int_val) => {
                 // Create format string for integer: "%lld"
                 let format = "%lld";
                 let format_ptr = self.create_string_literal(format);
-                
-                self.builder.build_call(
-                    self.printf_func, 
-                    &[format_ptr.into(), int_val.into()], 
-                    &call_id
-                ).unwrap();
-                
+
+                // Build call with improved error handling
+                self.handle_llvm_err(
+                    self.builder.build_call(
+                        self.printf_func,
+                        &[format_ptr.into(), int_val.into()],
+                        &call_id
+                    ),
+                    "integer printf"
+                )?;
+
                 Ok(())
             },
             BasicValueEnum::PointerValue(ptr_val) => {
                 // Assume pointer is a string and print it with "%s"
                 let format = "%s";
                 let format_ptr = self.create_string_literal(format);
-                
-                self.builder.build_call(
-                    self.printf_func, 
-                    &[format_ptr.into(), ptr_val.into()], 
-                    &call_id
-                ).unwrap();
-                
+
+                // Build call with improved error handling
+                self.handle_llvm_err(
+                    self.builder.build_call(
+                        self.printf_func,
+                        &[format_ptr.into(), ptr_val.into()],
+                        &call_id
+                    ),
+                    "string printf"
+                )?;
+
                 Ok(())
             },
             _ => Err("Unsupported value type for printing".to_string())
@@ -751,16 +1062,28 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     // JIT compile and execute the module
     pub fn jit_compile_and_run(&self) -> Result<(), String> {
-        let execution_engine = self.module.create_jit_execution_engine(OptimizationLevel::Default)
-            .map_err(|e| format!("Error creating JIT execution engine: {}", e))?;
-        
+        // Create JIT execution engine with better error message
+        let execution_engine = self.handle_llvm_err(
+            self.module.create_jit_execution_engine(OptimizationLevel::Default),
+            "JIT execution engine creation"
+        )?;
+
         unsafe {
-            let main_fn = execution_engine.get_function::<unsafe extern "C" fn() -> i32>("main")
-                .map_err(|e| format!("Error getting main function: {}", e))?;
-                
-            main_fn.call();
+            // Get the main function with improved error message
+            let main_fn = self.handle_llvm_err(
+                execution_engine.get_function::<unsafe extern "C" fn() -> i32>("main"),
+                "retrieving main function for JIT execution"
+            )?;
+
+            // Store the return value for potential error reporting
+            let result = main_fn.call();
+
+            // Check if the program ended with an error code
+            if result != 0 {
+                return Err(format!("Program exited with non-zero status code: {}", result));
+            }
         }
-        
+
         Ok(())
     }
     
@@ -769,12 +1092,14 @@ impl<'ctx> LLVMCompiler<'ctx> {
         // Get the default target triple
         let target_triple = TargetMachine::get_default_triple();
         println!("Targeting: {}", target_triple.to_string());
-        
-        // Get the target from the triple
-        let target = Target::from_triple(&target_triple)
-            .map_err(|e| format!("Error getting target from triple: {}", e))?;
-        
-        // Create a target machine
+
+        // Get the target from the triple with improved error handling
+        let target = self.handle_llvm_err(
+            Target::from_triple(&target_triple),
+            "obtaining target from triple"
+        )?;
+
+        // Create a target machine with improved error handling
         let target_machine = target.create_target_machine(
             &target_triple,
             "generic",
@@ -782,25 +1107,32 @@ impl<'ctx> LLVMCompiler<'ctx> {
             OptimizationLevel::Default,
             RelocMode::Default,
             CodeModel::Default,
-        ).ok_or_else(|| "Error creating target machine".to_string())?;
-        
+        ).ok_or_else(|| "Failed to create target machine: no machine for target triple".to_string())?;
+
         // Set the data layout for the module
         self.module.set_data_layout(&target_machine.get_target_data().get_data_layout());
         self.module.set_triple(&target_triple);
-        
-        // Verify the module is valid
+
+        // Verify the module is valid with detailed error information
         if let Err(err) = self.module.verify() {
-            return Err(format!("Module verification error: {}", err.to_string()));
+            return Err(format!(
+                "Module verification error: {}. This may indicate a type mismatch or malformed IR.",
+                err.to_string()
+            ));
         }
-        
+
         // First create an object file
         let object_filename = format!("{}.o", output_filename);
         let object_path = std::path::Path::new(&object_filename);
-        target_machine.write_to_file(&self.module, FileType::Object, object_path)
-            .map_err(|e| format!("Error writing object file: {}", e))?;
-        
+
+        // Write to file with improved error handling
+        self.handle_llvm_err(
+            target_machine.write_to_file(&self.module, FileType::Object, object_path),
+            "writing object file"
+        )?;
+
         println!("Generated object file: {}", object_filename);
-        
+
         // Now link the object file into an executable using system linker
         #[cfg(target_os = "macos")]
         let linking_result = Command::new("cc")
@@ -808,43 +1140,50 @@ impl<'ctx> LLVMCompiler<'ctx> {
             .arg(output_filename)
             .arg(&object_filename)
             .status()
-            .map_err(|e| format!("Error executing linker: {}", e))?;
-            
+            .map_err(|e| format!("Error executing linker (cc): {}. Make sure you have a C compiler installed.", e))?;
+
         #[cfg(target_os = "linux")]
         let linking_result = Command::new("cc")
             .arg("-o")
             .arg(output_filename)
             .arg(&object_filename)
             .status()
-            .map_err(|e| format!("Error executing linker: {}", e))?;
-            
+            .map_err(|e| format!("Error executing linker (cc): {}. Make sure you have a C compiler installed.", e))?;
+
         #[cfg(target_os = "windows")]
         let linking_result = Command::new("cl")
             .arg("/Fe:")
             .arg(output_filename)
             .arg(&object_filename)
             .status()
-            .map_err(|e| format!("Error executing linker: {}", e))?;
-        
+            .map_err(|e| format!("Error executing linker (cl): {}. Make sure you have Visual Studio or the MSVC toolchain installed.", e))?;
+
+        // Check if linking succeeded with improved error details
         if !linking_result.success() {
-            return Err("Linking failed".to_string());
+            let error_code = linking_result.code().unwrap_or(-1);
+            return Err(format!(
+                "Linking failed with exit code {}. This may be due to missing libraries or incompatible object formats.",
+                error_code
+            ));
         }
-        
+
         // Make the resulting binary executable on Unix-like systems
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         {
             use std::os::unix::fs::PermissionsExt;
-            
+
+            // Get metadata with improved error message
             let metadata = fs::metadata(output_filename)
-                .map_err(|e| format!("Failed to get metadata: {}", e))?;
-                
+                .map_err(|e| format!("Failed to get file metadata for '{}': {}", output_filename, e))?;
+
             let mut perms = metadata.permissions();
             perms.set_mode(0o755); // rwxr-xr-x
-            
+
+            // Set permissions with improved error message
             fs::set_permissions(output_filename, perms)
-                .map_err(|e| format!("Failed to set permissions: {}", e))?;
+                .map_err(|e| format!("Failed to set executable permissions on '{}': {}", output_filename, e))?;
         }
-        
+
         println!("Generated executable: {}", output_filename);
         Ok(())
     }

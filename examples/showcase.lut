@@ -1,0 +1,214 @@
+@@ Lüt Language Showcase
+@@ This example demonstrates all the major features of the Lüt language with the new unified syntax
+
+@@ ----------------
+@@ Variable Declaration and Data Types
+@@ ----------------
+
+@@ Number variables
+age : { number 30 }
+score : { number 95 }
+temperature : { number -10 }  @@ Negative numbers are supported
+
+print { '--- Number Variables ---' }
+print { 'age = ', $age }
+print { 'score = ', $score }
+print { 'temperature = ', $temperature }
+
+@@ Text variables
+name : { text 'Alice' }
+greeting : { text 'Hello, World!' }
+empty_text : { text '' }
+
+print { '\n--- Text Variables ---' }
+print { 'name = ', $name }
+print { 'greeting = ', $greeting }
+print { 'empty_text = "', $empty_text, '"' }
+
+@@ Boolean variables - multiple ways to create them
+@@ 1. Direct boolean literals
+is_active : true
+is_complete : false
+
+print { '\n--- Boolean Variables ---' }
+print { 'is_active = ', $is_active }
+print { 'is_complete = ', $is_complete }
+
+@@ 2. Using the bool command for type conversion
+bool_from_number : { bool 1 }         @@ true (any non-zero is true)
+bool_from_zero : { bool 0 }           @@ false
+bool_from_text : { bool 'hi' }        @@ true (any non-empty string is true)
+bool_from_empty : { bool '' }         @@ false (empty string is false)
+
+print { '\n--- Boolean Conversion ---' }
+print { 'bool_from_number (1) = ', $bool_from_number }
+print { 'bool_from_zero (0) = ', $bool_from_zero }
+print { 'bool_from_text ("hi") = ', $bool_from_text }
+print { 'bool_from_empty ("") = ', $bool_from_empty }
+
+@@ 3. Using comparison operations
+is_adult : $age > 18               @@ true
+is_same : $name == 'Bob'           @@ false
+
+print { '\n--- Boolean from Comparisons ---' }
+print { 'is_adult ($age > 18) = ', $is_adult }
+print { 'is_same ($name == "Bob") = ', $is_same }
+
+@@ ----------------
+@@ Arithmetic Operations
+@@ ----------------
+
+@@ Basic arithmetic operations
+sum : $age + $score                @@ 125
+difference : $score - $age         @@ 65
+product : 5 * 10                   @@ 50
+quotient : 100 / 4                 @@ 25
+remainder : 17 % 5                 @@ 2
+
+print { '\n--- Basic Arithmetic ---' }
+print { 'sum ($age + $score) = ', $sum }
+print { 'difference ($score - $age) = ', $difference }
+print { 'product (5 * 10) = ', $product }
+print { 'quotient (100 / 4) = ', $quotient }
+print { 'remainder (17 % 5) = ', $remainder }
+
+@@ Operator precedence
+expr1 : 2 + 3 * 4                  @@ 14 (multiplication happens first)
+expr2 : (2 + 3) * 4                @@ 20 (parentheses override precedence)
+complex : ($age + $score) / (5 * 2) + 1  @@ 13.5 rounded to 13 (integer division)
+
+print { '\n--- Operator Precedence ---' }
+print { 'expr1 (2 + 3 * 4) = ', $expr1, ' (multiplication first)' }
+print { 'expr2 ((2 + 3) * 4) = ', $expr2, ' (parentheses first)' }
+print { 'complex (($age + $score) / (5 * 2) + 1) = ', $complex, ' (integer division)' }
+
+@@ ----------------
+@@ Type Conversion
+@@ ----------------
+
+@@ Convert number to text
+age_text : { text $age }              @@ '30'
+calc_text : { text ($score - $age) }  @@ '65'
+
+print { '\n--- Number to Text Conversion ---' }
+print { 'age_text = ', $age_text, ' (was ', $age, ')' }
+print { 'calc_text = ', $calc_text, ' (was ', $score - $age, ')' }
+
+@@ Convert text to number
+num_text : { text '42' }
+text_to_num : { number $num_text }    @@ 42
+
+print { '\n--- Text to Number Conversion ---' }
+print { 'num_text = ', $num_text }
+print { 'text_to_num = ', $text_to_num, ' (converted from "', $num_text, '")' }
+
+@@ Convert boolean to text
+bool_text : { text $is_active }       @@ 'true'
+
+print { '\n--- Boolean to Text Conversion ---' }
+print { 'bool_text = ', $bool_text, ' (was ', $is_active, ')' }
+
+@@ Convert boolean to number
+bool_num : { number $is_active }      @@ 1
+
+print { '\n--- Boolean to Number Conversion ---' }
+print { 'bool_num = ', $bool_num, ' (was ', $is_active, ')' }
+
+@@ ----------------
+@@ Logical Operators
+@@ ----------------
+
+@@ Logical AND
+both_true : $is_adult && $is_active   @@ true && true = true
+mixed : $is_adult && $is_same         @@ true && false = false
+
+print { '\n--- Logical AND (&&) ---' }
+print { 'both_true ($is_adult && $is_active) = ', $both_true }
+print { 'mixed ($is_adult && $is_same) = ', $mixed }
+
+@@ Logical OR
+either_true : $is_adult || $is_same   @@ true || false = true
+both_false : $is_same || $is_complete @@ false || false = false
+
+print { '\n--- Logical OR (||) ---' }
+print { 'either_true ($is_adult || $is_same) = ', $either_true }
+print { 'both_false ($is_same || $is_complete) = ', $both_false }
+
+@@ Logical NOT
+not_true : !$is_active                @@ !true = false
+not_false : !$is_same                 @@ !false = true
+
+print { '\n--- Logical NOT (!) ---' }
+print { 'not_true (!$is_active) = ', $not_true }
+print { 'not_false (!$is_same) = ', $not_false }
+
+@@ ----------------
+@@ Conditional Logic
+@@ ----------------
+
+print { '\n--- Conditional Logic ---' }
+
+@@ Simple if-else
+if $is_adult {
+    print { $name, ' is an adult' }
+} else {
+    print { $name, ' is not an adult' }
+}
+
+@@ Complex conditions
+has_discount : false
+if $is_adult && !$has_discount {
+    print { $name, ' is eligible for a discount' }
+}
+
+@@ Nested if statements
+if $score > 90 {
+    print { 'Excellent score!' }
+
+    if $age < 20 {
+        print { 'Impressive for your age!' }
+    } else {
+        print { 'Well done!' }
+    }
+} else {
+    if $score > 70 {
+        print { 'Good score!' }
+    } else {
+        print { 'Keep practicing!' }
+    }
+}
+
+@@ ----------------
+@@ Ternary Operator
+@@ ----------------
+
+print { '\n--- Ternary Operator ---' }
+
+@@ Ternary expressions
+status : $is_active ? 'Active' : 'Inactive'
+print { 'Status: ', $status, ' (using ternary: $is_active ? "Active" : "Inactive")' }
+
+discount_eligibility : $age > 65 ? 'Senior discount' : ($age < 18 ? 'Youth discount' : 'No discount')
+print { 'Discount: ', $discount_eligibility, ' (nested ternary)' }
+
+@@ ----------------
+@@ ASCII Conversion
+@@ ----------------
+
+print { '\n--- ASCII Conversion ---' }
+
+@@ Convert ASCII code to character
+a_char : { asc 65 }                   @@ 'A'
+z_char : { asc 90 }                   @@ 'Z'
+symbol : { asc 33 }                   @@ '!'
+
+print { 'ASCII 65 = ', $a_char, ' (A)' }
+print { 'ASCII 90 = ', $z_char, ' (Z)' }
+print { 'ASCII 33 = ', $symbol, ' (!)' }
+
+@@ Build a string using ASCII characters
+h_char : { asc 72 }  @@ H
+e_char : { asc 101 } @@ e
+l_char : { asc 108 } @@ l
+o_char : { asc 111 } @@ o
+print { 'Hello from ASCII: ', $h_char, $e_char, $l_char, $l_char, $o_char, '!' }

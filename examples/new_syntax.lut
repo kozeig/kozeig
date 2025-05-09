@@ -1,0 +1,86 @@
+@@ Lüt Unified Syntax Example
+@@ This example demonstrates the new unified bracket syntax of the Lüt language
+
+@@ ----------------
+@@ Variable Declarations
+@@ ----------------
+
+@@ Declaring variables with the new syntax
+name : { text 'Alice' }
+age : { number 30 }
+is_student : false
+
+@@ ----------------
+@@ Type Conversions
+@@ ----------------
+
+@@ Convert number to text
+age_text : { text $age }
+
+@@ Convert text to number
+number_text : { text '42' }
+parsed_number : { number $number_text }
+
+@@ Convert to boolean
+has_value : { bool $age }  @@ true because non-zero
+is_empty : { bool '' }     @@ false because empty string
+
+@@ ----------------
+@@ Arithmetic Operations
+@@ ----------------
+
+@@ Basic arithmetic operations
+sum : $age + 5
+difference : $age - 10
+product : $age * 2
+quotient : $age / 3
+remainder : $age % 7
+
+@@ Compound operations with precedence
+complex : ($age + 5) * 2 - 10   @@ (30 + 5) * 2 - 10 = 60
+
+@@ ----------------
+@@ Print Commands
+@@ ----------------
+
+@@ Print simple values
+print { 'Name: ', $name }
+print { 'Age: ', $age }
+
+@@ Print expressions
+print { 'Age in 5 years: ', $age + 5 }
+print { 'Half of age: ', $age / 2 }
+
+@@ ----------------
+@@ Control Flow
+@@ ----------------
+
+@@ If-else statements
+if $age >= 18 {
+    print { $name, ' is an adult' }
+} else {
+    print { $name, ' is a minor' }
+}
+
+@@ Nested if statements
+if $age > 20 {
+    print { 'Over 20 years old' }
+    
+    if $age < 40 {
+        print { 'Between 20 and 40' }
+    } else {
+        print { 'Over 40' }
+    }
+}
+
+@@ Ternary operator for conditional expressions
+status : $is_student ? 'Student' : 'Not a student'
+print { 'Status: ', $status }
+
+@@ ASCII conversion
+first_letter : { asc 65 }  @@ 'A'
+print { 'First letter: ', $first_letter }
+
+@@ ----------------
+@@ End of Example
+@@ ----------------

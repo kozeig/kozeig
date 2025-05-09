@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Lüt is a simple, interpreted and compiled programming language with a focus on readability and straightforward syntax. The name "lüt" comes from "loot", reflecting the language's playful nature while taking inspiration from languages like C, C++, and Python, but with a more accessible and fun syntax (in my opinion at least).
+Lüt is a simple, interpreted and compiled programming language with a focus on readability and straightforward syntax. The name "lüt" comes from "loot", reflecting the language's playful nature while taking inspiration from languages like C, C++, and Python, but with a consistent, unified syntax.
 
 ## Basic Syntax Elements
 
@@ -16,67 +16,95 @@ Comments in Lüt start with `@@` and continue until the end of the line:
 
 ### Variables
 
-Variables are defined using a name followed by a colon and a value declaration:
+Variables are defined using a name followed by a colon and a value declaration with curly braces:
 
 ```lut
-variableName : -type value
+variableName : { type value }
 ```
 
 For example:
 
 ```lut
-greeting : -text 'Hello World'
-number : -number 42
+greeting : { text 'Hello World' }
+number : { number 42 }
 ```
 
 ### Data Types
 
 Lüt supports the following data types:
 
-1. **Numbers** - Integer values 
+1. **Numbers** - Integer values
    ```
-   age : -number 30
-   negative : -number -10
+   age : { number 30 }
+   negative : { number -10 }
    ```
 
 2. **Text** - String values, enclosed in single quotes
    ```
-   name : -text 'John'
-   message : -text 'Hello, world!'
+   name : { text 'John' }
+   message : { text 'Hello, world!' }
    ```
 
 3. **Boolean** - True/false values
+
+   Booleans can be created in several ways:
+
+   a. Using boolean literals:
    ```
    isValid : true
    isEmpty : false
    ```
-   
+
+   b. Using the bool command (for conversion):
+   ```
+   isTrue : { bool 1 }
+   isFalse : { bool 0 }
+   textTrue : { bool 'yes' }
+   textEmpty : { bool '' }  @@ false because empty string
+   ```
+
+   c. Using comparison operations:
+   ```
+   isGreater : $a > $b
+   isEqual : $a == $b
+   ```
+
    Boolean literals don't need a special command. You can just use `true` or `false` directly.
+
+   Truthy values in Lüt (values considered true in boolean context):
+   - Any non-zero number
+   - Any non-empty string
+   - The boolean literal `true`
+
+   Falsy values (values considered false in boolean context):
+   - Zero (0)
+   - Empty string ('')
+   - The boolean literal `false`
 
 ### Variable References
 
 To use a variable's value, prefix its name with a dollar sign `$`:
 
 ```
--print $variableName
+print { $variableName }
 ```
 
 ## Commands
 
-Commands in Lut start with a hyphen (`-`):
+Commands in Lüt use a name followed by arguments enclosed in curly braces:
 
 ### Print Command
 
 The print command outputs values to the console:
 
 ```
--print $variable
+print { $variable }
 ```
 
 You can print multiple values by separating them with commas:
 
 ```
--print $firstName, $lastName, -text ' is ', $age, -text ' years old'
+print { $firstName, $lastName, ' is ', $age, ' years old' }
 ```
 
 ### Type Conversion Commands
@@ -86,7 +114,7 @@ You can print multiple values by separating them with commas:
 Convert a value to text:
 
 ```
-textValue : -text $someValue
+textValue : { text $someValue }
 ```
 
 #### Number Conversion
@@ -94,7 +122,7 @@ textValue : -text $someValue
 Convert a value to a number:
 
 ```
-numericValue : -number $someValue
+numericValue : { number $someValue }
 ```
 
 #### ASCII Conversion
@@ -102,7 +130,7 @@ numericValue : -number $someValue
 Convert a number to its ASCII character representation:
 
 ```
-letter : -asc 65  @@ Converts to 'A'
+letter : { asc 65 }  @@ Converts to 'A'
 ```
 
 ### Arithmetic Operations
@@ -159,63 +187,76 @@ result : ($a + $b) * $c
 
 Statements in Lüt are typically separated by newlines. You can also use double semicolons (`;;`) to separate statements on the same line:
 
-```
-name : -text 'John' ;; age : -number 30 ;; -print $name, -text ' is ', $age, -text ' years old'
+```lut
+name : { text 'John' } ;; age : { number 30 } ;; print { $name, ' is ', $age, ' years old' }
 ```
 
 ## Example Programs
 
 ### Hello World
 
-```
+```lut
 @@ Simple Hello World program
-greeting : -text 'Hello, World!'
--print $greeting
+greeting : { text 'Hello, World!' }
+print { $greeting }
 ```
 
 ### Basic Arithmetic
 
-```
+```lut
 @@ Simple arithmetic example
-a : -number 5
-b : -number 10
+a : { number 5 }
+b : { number 10 }
 
 @@ Addition
 sum : $a + $b
--print 'Sum: ', $sum
+print { 'Sum: ', $sum }
 
 @@ Subtraction
 difference : $b - $a
--print 'Difference: ', $difference
+print { 'Difference: ', $difference }
 
 @@ Multiplication
 product : $a * $b
--print 'Product: ', $product
+print { 'Product: ', $product }
 
-@@ Division
+@@ Division (includes runtime division-by-zero protection)
 quotient : $b / $a
--print 'Quotient: ', $quotient
+print { 'Quotient: ', $quotient }
 
-@@ Modulo
+@@ Modulo (includes runtime modulo-by-zero protection)
 remainder : $b % $a
--print 'Remainder: ', $remainder
+print { 'Remainder: ', $remainder }
 
-@@ Compound operation
-compound : ($a + $b) * 2
--print 'Compound: ($a + $b) * 2 = ', $compound
+@@ Compound operations with operator precedence
+compound1 : $a + $b * 2
+print { 'Compound (a + b * 2): ', $compound1 }  @@ Multiplication happens first
+
+@@ Using parentheses to override precedence
+compound2 : ($a + $b) * 2
+print { 'Compound ((a + b) * 2): ', $compound2 }
+
+@@ Conditional logic with modern syntax
+if $a < $b {
+    print { '$a is less than $b' }
+
+    if $a * 2 > $b {
+        print { 'But $a * 2 is greater than $b' }
+    }
+}
 ```
 
 ### ASCII Conversion
 
-```
+```lut
 @@ ASCII conversion example
-h : -asc 72
-e : -asc 101
-l : -asc 108
-l2 : -asc 108
-o : -asc 111
+h : { asc 72 }
+e : { asc 101 }
+l : { asc 108 }
+l2 : { asc 108 }
+o : { asc 111 }
 
--print $h, $e, $l, $l2, $o  @@ Prints "hello"
+print { $h, $e, $l, $l2, $o }  @@ Prints "hello"
 ```
 
 ## Identifiers and Naming Conventions
@@ -264,35 +305,35 @@ if <expression> {
 }
 ```
 
-If statements evaluate an expression, and if the expression is "truthy" (non-zero, non-empty, or true), the then branch is executed. Otherwise, the else branch is executed if it exists.
-
 Example:
 
 ```lut
-age : -number 25
+age : { number 25 }
 
 if $age >= 18 {
-    -print 'You are an adult'
+    print { 'You are an adult' }
 } else {
-    -print 'You are under 18'
+    print { 'You are under 18' }
 }
 ```
+
+If statements evaluate an expression, and if the expression is "truthy" (non-zero, non-empty, or true), the then branch is executed. Otherwise, the else branch is executed if it exists.
 
 Nested if statements are also supported:
 
 ```lut
-score : -number 85
+score : { number 85 }
 
 if $score >= 60 {
-    -print 'You passed!'
-    
+    print { 'You passed!' }
+
     if $score >= 90 {
-        -print 'Excellent job!'
+        print { 'Excellent job!' }
     } else {
-        -print 'Good job!'
+        print { 'Good job!' }
     }
 } else {
-    -print 'You failed.'
+    print { 'You failed.' }
 }
 ```
 
@@ -310,17 +351,46 @@ Lüt supports the following comparison operators:
 Example:
 
 ```lut
-a : -number 10
-b : -number 20
+a : { number 10 }
+b : { number 20 }
 
 if $a < $b {
-    -print '$a is less than $b'
+    print { '$a is less than $b' }
 }
 
 if $a == $b {
-    -print '$a is equal to $b'
+    print { '$a is equal to $b' }
 } else {
-    -print '$a is not equal to $b'
+    print { '$a is not equal to $b' }
+}
+```
+
+### Logical Operators
+
+Lüt supports the following logical operators:
+
+- `&&` - Logical AND
+- `||` - Logical OR
+- `!` - Logical NOT
+
+Example:
+
+```lut
+a : { number 5 }
+b : { number 10 }
+
+@@ Check if a is between 0 and 10
+in_range : $a > 0 && $a < 10
+
+@@ Check if b is negative or greater than 100
+out_of_range : $b < 0 || $b > 100
+
+@@ Negate a boolean
+valid : true
+invalid : !$valid
+
+if $in_range && !$out_of_range {
+    print { 'All conditions met' }
 }
 ```
 
@@ -333,11 +403,30 @@ Lüt is now implemented as a true compiler that uses LLVM through the Inkwell Ru
 3. **Ahead-of-Time (AOT) Compilation**: The `lut build` command creates optimized standalone executables.
 4. **LLVM Optimizations**: Benefit from LLVM's powerful optimization passes for better performance.
 
+### Safety Features
+
+The compiler implements several safety features:
+
+1. **Division by zero protection**: Runtime checks prevent division and modulo operations with a zero denominator.
+2. **Type tracking**: Variables are tracked by type (Integer, String, Boolean) to ensure proper LLVM IR generation.
+3. **Detailed error messages**: Compilation errors provide specific information about where and why things went wrong.
+
+### Compiler Pipeline
+
 The compiler works by:
 1. Lexing the source code into tokens
 2. Parsing the tokens into an abstract syntax tree (AST)
 3. Generating LLVM IR (Intermediate Representation) from the AST
 4. Optimizing the LLVM IR
 5. Generating native machine code for the target platform
+
+### Syntax Design Philosophy
+
+Lüt's syntax is designed around these principles:
+
+1. **Consistency**: All code blocks use curly braces, making the structure immediately recognizable.
+2. **Clarity**: Commands and type operations use a consistent `name { arguments }` pattern.
+3. **Readability**: Variable references always use the `$` prefix for clear distinction.
+4. **Expressiveness**: Common operations like arithmetic and comparison use familiar operators.
 
 Contributions are welcome to improve the compiler, add new language features, or enhance the standard library!

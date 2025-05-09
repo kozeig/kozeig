@@ -18,12 +18,14 @@ Lüt is currently in early development. While the core features work, you may en
 
 ## Features
 
-- **Simple, Clean Syntax**: Easy to read and write
+- **Simple, Consistent Syntax**: Clean, unified syntax for all block constructs
 - **Compiled & Interpreted**: Run with `lut run` or compile with `lut build` designed to bridge the gap between languages like Python and C
 - **Native LLVM Compilation**: Generates optimized binaries using the LLVM compiler infrastructure
 - **JIT Execution**: Supports Just-In-Time compilation for quick testing with `lut jit` *Note: this feature is experimental and may be removed later depending on feedback, my own personal preference, or if it gets unecessarily difficult to maintain*
 - **Cross-Platform**: Produces standalone executables that work on multiple platforms
 - **Beginner-Friendly**: Ideal for learning programming concepts
+- **Logical Operators**: Full support for AND, OR, and NOT operations
+- **Control Flow**: If-else statements and ternary conditional expressions
 
 ## Installation
 
@@ -84,9 +86,11 @@ Lüt is still in early development and has several known issues and limitations:
 - Type checking is minimal, which can lead to unexpected behavior in some cases
 
 Recent improvements:
-- Arithmetic operations now work correctly with proper type handling
+- Unified syntax with consistent use of curly braces for all code blocks
+- Logical operators (AND, OR, NOT) are fully implemented
+- Arithmetic operations work correctly with proper type handling
 - Control flow with if/else statements is fully functional
-- Boolean expressions and comparisons are supported
+- Boolean expressions, comparisons, and ternary expressions are supported
 
 If you encounter issues, please file a bug report so the community can investigate and fix the problem.
 
@@ -96,8 +100,8 @@ If you encounter issues, please file a bug report so the community can investiga
 
 ```lut
 @@ Hello World in Lut
-greeting : -text 'Hello, World!'
--print $greeting
+greeting : { text 'Hello, World!' }
+print { $greeting }
 ```
 
 ### Running a Program
@@ -116,23 +120,24 @@ lut jit hello.lut
 
 ## Syntax Overview
 
-Lut has a simple syntax that's easy to learn:
+Lut has a simple, consistent syntax that's easy to learn:
 
 - **Comments** start with `@@`
-- **Variables** are defined with `name : -type value`
-- **Commands** start with a hyphen `-` (like `-print`)
+- **Variables** are defined with `name : { type value }`
+- **Commands** use a name followed by arguments in curly braces: `command { args }`
 - **Variable references** use a dollar sign `$variableName`
 
 ### Basic Data Types
 
-- **Numbers**: `age : -number 42`
-- **Text**: `name : -text 'John Doe'`
+- **Numbers**: `age : { number 42 }`
+- **Text**: `name : { text 'John Doe' }`
+- **Booleans**: `isActive : true` or `isValid : { bool 1 }`
 
 ### Arithmetic Operations
 
 ```lut
-a : -number 10
-b : -number 5
+a : { number 10 }
+b : { number 5 }
 
 sum : $a + $b
 diff : $a - $b
@@ -140,15 +145,15 @@ product : $a * $b
 quotient : $a / $b
 remainder : $a % $b
 
--print 'Sum: ', $sum
--print 'Product: ', $product
+print { 'Sum: ', $sum }
+print { 'Product: ', $product }
 ```
 
 ### ASCII Conversion
 
 ```lut
-char : -asc 65  @@ Converts ASCII code 65 to 'A'
--print $char
+char : { asc 65 }  @@ Converts ASCII code 65 to 'A'
+print { $char }
 ```
 
 For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
@@ -159,10 +164,14 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 - ✅ **Core Arithmetic Operations**: Addition, subtraction, multiplication, division, and modulo
 - ✅ **Basic Control Flow**: If/else conditionals and boolean operations
 - ✅ **Native Compilation**: LLVM-based compiler with JIT support
+- ✅ **Logical Operators**: AND, OR, and NOT operations
+- ✅ **Unified Syntax**: Consistent syntax with curly braces for all code blocks
+- ✅ **Ternary Expressions**: Conditional expressions with the `?:` operator
 
 ### In Progress
 - **Type System Improvements**: Better type handling and conversion
 - **Memory Management**: More robust heap memory management for strings
+- **Syntax Refinements**: Ongoing improvements to the language syntax
 
 ### Future
 - **Improved Error Messages**: Better diagnostics and debugging

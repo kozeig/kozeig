@@ -51,17 +51,17 @@ impl Interpreter {
             }
             Stmt::Command { name, args } => {
                 match name.as_str() {
-                    "-print" => {
+                    "print" | "-print" => {
                         if args.is_empty() {
                             println!();
                             return Ok(());
                         }
-                        
+
                         let mut result = String::new();
                         for (i, arg) in args.iter().enumerate() {
                             let value = self.evaluate(arg.clone())?;
                             result.push_str(&value.to_string());
-                            
+
                             // Add space between arguments (but not after the last one)
                             if i < args.len() - 1 {
                                 result.push(' ');
@@ -124,6 +124,25 @@ impl Interpreter {
     
     fn evaluate(&mut self, expr: Expr) -> Result<Value, String> {
         match expr {
+            Expr::Ternary { condition, then_branch, else_branch } => {
+                // Evaluate the condition
+                let condition_value = self.evaluate(*condition)?;
+
+                // Check if the condition is truthy
+                let is_truthy = match condition_value {
+                    Value::Boolean(b) => b,
+                    Value::Number(n) => n != 0,
+                    Value::Text(s) => !s.is_empty(),
+                    Value::Null => false,
+                };
+
+                // Based on the condition, evaluate either the then branch or the else branch
+                if is_truthy {
+                    self.evaluate(*then_branch)
+                } else {
+                    self.evaluate(*else_branch)
+                }
+            },
             Expr::VariableRef(name) => {
                 if name.starts_with('$') {
                     let var_name = name[1..].to_string();
@@ -329,11 +348,11 @@ impl Interpreter {
             }
             Expr::Command { name, args } => {
                 match name.as_str() {
-                    "-number" => {
+                    "number" | "-number" => {
                         if args.len() != 1 {
                             return Err("Number command expects one argument".to_string());
                         }
-                        
+
                         let arg = self.evaluate(args[0].clone())?;
                         match arg {
                             Value::Number(n) => Ok(Value::Number(n)),
@@ -347,11 +366,11 @@ impl Interpreter {
                             _ => Err("Expected number, text or boolean".to_string()),
                         }
                     }
-                    "-text" => {
+                    "text" | "-text" => {
                         if args.len() != 1 {
                             return Err("Text command expects one argument".to_string());
                         }
-                        
+
                         let arg = self.evaluate(args[0].clone())?;
                         match arg {
                             Value::Text(s) => Ok(Value::Text(s)),
@@ -360,11 +379,11 @@ impl Interpreter {
                             _ => Err("Expected text, number or boolean".to_string()),
                         }
                     }
-                    "-bool" => {
+                    "bool" | "-bool" => {
                         if args.len() != 1 {
                             return Err("Boolean command expects one argument".to_string());
                         }
-                        
+
                         let arg = self.evaluate(args[0].clone())?;
                         match arg {
                             Value::Boolean(b) => Ok(Value::Boolean(b)),
@@ -381,11 +400,11 @@ impl Interpreter {
                             _ => Err("Expected boolean, number or text".to_string()),
                         }
                     }
-                    "-asc" => {
+                    "asc" | "-asc" => {
                         if args.len() != 1 {
                             return Err(format!("Asc command expects one argument, got {}", args.len()));
                         }
-                        
+
                         let arg = self.evaluate(args[0].clone())?;
                         match arg {
                             Value::Number(n) => {

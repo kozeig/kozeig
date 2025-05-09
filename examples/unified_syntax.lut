@@ -1,0 +1,47 @@
+@@ Lüt Unified Syntax Example
+@@ This file demonstrates the updated syntax using consistent curly braces
+
+@@ Variable declarations
+name : { text 'World' }
+num1 : { number 5 }
+num2 : { number 10 }
+is_active : true
+
+@@ Command usage
+print { 'Hello, ', $name, '!' }
+
+@@ Type conversion
+text_num : { text $num1 }
+num_back : { number $text_num }
+char_a : { asc 65 }
+
+@@ Arithmetic operations
+sum : $num1 + $num2
+product : $num1 * $num2
+
+@@ Showing results
+print { 'Sum: ', $sum }
+print { 'Product: ', $product }
+print { 'ASCII 65 is: ', $char_a }
+
+@@ Conditional logic
+if $num1 < $num2 {
+    print { $num1, ' is less than ', $num2 }
+    
+    if $sum > 10 {
+        print { 'Sum is greater than 10' }
+    } else {
+        print { 'Sum is not greater than 10' }
+    }
+} else {
+    print { $num1, ' is not less than ', $num2 }
+}
+
+@@ Boolean operations
+is_valid : $num1 > 0 && $num2 < 20
+print { 'Is valid: ', $is_valid ? 'Yes' : 'No' }
+
+@@ Converting to boolean
+empty_text : { text '' }
+has_value : { bool $empty_text }
+print { 'Empty text as boolean: ', $has_value }
