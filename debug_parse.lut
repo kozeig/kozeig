@@ -1,2 +1,0 @@
-@@ Debug parsing test
-test : { number 42 }

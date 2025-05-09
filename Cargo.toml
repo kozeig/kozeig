@@ -1,6 +1,6 @@
 [package]
 name = "lut"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Jason Weiss <jason.awz2005@icloud.com>"]
 description = "A fun programming language called 'lut'"
