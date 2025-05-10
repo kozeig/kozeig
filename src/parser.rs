@@ -38,7 +38,7 @@ pub enum Stmt {
     },
     Expression(Expr),
     Command {
-        name: String, 
+        name: String,
         args: Vec<Expr>,
     },
     Print(Vec<Expr>),
@@ -48,6 +48,18 @@ pub enum Stmt {
         then_branch: Vec<Stmt>,
         else_branch: Option<Vec<Stmt>>,
     },
+    While {
+        condition: Expr,
+        body: Vec<Stmt>,
+    },
+    For {
+        initializer: Expr,
+        update: Expr,
+        condition: Expr,
+        body: Vec<Stmt>,
+    },
+    Break,
+    Continue,
 }
 
 pub struct Parser {
@@ -88,9 +100,25 @@ impl Parser {
     }
     
     fn declaration(&mut self) -> Result<Stmt, String> {
-        // Handle the 'if' keyword for the new syntax
+        // Handle the keywords for control structures
         if self.match_token(TokenType::If) {
             return self.if_statement();
+        }
+
+        if self.match_token(TokenType::While) {
+            return self.while_statement();
+        }
+
+        if self.match_token(TokenType::For) {
+            return self.for_statement();
+        }
+
+        if self.match_token(TokenType::Break) {
+            return Ok(Stmt::Break);
+        }
+
+        if self.match_token(TokenType::Continue) {
+            return Ok(Stmt::Continue);
         }
 
         if self.match_token(TokenType::Register) {
@@ -174,57 +202,79 @@ impl Parser {
         self.expression_statement()
     }
     
-    // Parse an if statement with the newer syntax: if condition { ... } else { ... }
+    // Parse an if statement with the newer syntax: if { condition } [ ... ] else [ ... ]
     fn if_statement(&mut self) -> Result<Stmt, String> {
+        // Expect left brace for condition
+        self.consume(TokenType::LeftBrace, "Expect '{' after 'if'")?;
+
         // Parse the condition
         let condition = self.expression()?;
 
-        // Expect a left brace after the condition
-        self.consume(TokenType::LeftBrace, "Expect '{' after if condition")?;
+        // Expect right brace after condition
+        self.consume(TokenType::RightBrace, "Expect '}' after if condition")?;
 
-        // Skip any newlines after the left brace
+        // Expect left bracket for if body
+        self.consume(TokenType::LeftBracket, "Expect '[' to begin if body")?;
+
+        // Skip any newlines
         while self.match_token(TokenType::Newline) {}
 
         // Parse the then branch statements
         let mut then_branch = Vec::new();
 
-        // Continue until we hit a right brace or EOF
-        while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+        // Continue until we hit a right bracket or EOF
+        while !self.check(TokenType::RightBracket) && !self.is_at_end() {
             // Skip newlines
             if self.match_token(TokenType::Newline) {
                 continue;
             }
 
+            // Handle comments within blocks
+            if self.match_token(TokenType::Comment) {
+                let comment = self.previous().lexeme.clone();
+                then_branch.push(Stmt::Comment(comment));
+                continue;
+            }
+
+            // Process the statement
             let stmt = self.declaration()?;
             then_branch.push(stmt);
         }
 
-        // Consume the closing brace
-        self.consume(TokenType::RightBrace, "Expect '}' after if body")?;
+        // Consume the closing bracket
+        self.consume(TokenType::RightBracket, "Expect ']' after if body")?;
 
         // Check for an else clause
         let else_branch = if self.match_token(TokenType::Else) {
-            // Consume the opening brace
-            self.consume(TokenType::LeftBrace, "Expect '{' after else")?;
+            // Expect left bracket for else body
+            self.consume(TokenType::LeftBracket, "Expect '[' to begin else body")?;
 
             // Skip any newlines
             while self.match_token(TokenType::Newline) {}
 
             let mut else_statements = Vec::new();
 
-            // Continue until we hit a right brace or EOF
-            while !self.check(TokenType::RightBrace) && !self.is_at_end() {
+            // Continue until we hit a right bracket or EOF
+            while !self.check(TokenType::RightBracket) && !self.is_at_end() {
                 // Skip newlines
                 if self.match_token(TokenType::Newline) {
                     continue;
                 }
 
+                // Handle comments within blocks
+                if self.match_token(TokenType::Comment) {
+                    let comment = self.previous().lexeme.clone();
+                    else_statements.push(Stmt::Comment(comment));
+                    continue;
+                }
+
+                // Process the statement
                 let stmt = self.declaration()?;
                 else_statements.push(stmt);
             }
 
-            // Consume the closing brace
-            self.consume(TokenType::RightBrace, "Expect '}' after else body")?;
+            // Consume the closing bracket
+            self.consume(TokenType::RightBracket, "Expect ']' after else body")?;
 
             Some(else_statements)
         } else {
@@ -235,6 +285,135 @@ impl Parser {
             condition,
             then_branch,
             else_branch,
+        })
+    }
+
+    // Parse a while statement: while { condition } [ ... ]
+    fn while_statement(&mut self) -> Result<Stmt, String> {
+        // Expect left brace for condition
+        self.consume(TokenType::LeftBrace, "Expect '{' after 'while'")?;
+
+        // Parse the condition
+        let condition = self.expression()?;
+
+        // Expect right brace after condition
+        self.consume(TokenType::RightBrace, "Expect '}' after while condition")?;
+
+        // Expect left bracket for loop body
+        self.consume(TokenType::LeftBracket, "Expect '[' to begin while loop body")?;
+
+        // Skip any newlines
+        while self.match_token(TokenType::Newline) {}
+
+        // Parse the loop body
+        let mut body = Vec::new();
+
+        // Continue until we hit a right bracket or EOF
+        while !self.check(TokenType::RightBracket) && !self.is_at_end() {
+            // Skip newlines
+            if self.match_token(TokenType::Newline) {
+                continue;
+            }
+
+            // Handle comments within blocks
+            if self.match_token(TokenType::Comment) {
+                let comment = self.previous().lexeme.clone();
+                body.push(Stmt::Comment(comment));
+                continue;
+            }
+
+            // Process the statement
+            let stmt = self.declaration()?;
+            body.push(stmt);
+        }
+
+        // Consume the closing bracket
+        self.consume(TokenType::RightBracket, "Expect ']' after while loop body")?;
+
+        Ok(Stmt::While {
+            condition,
+            body,
+        })
+    }
+
+    // Parse a for statement: for { init, update, condition } [ ... ]
+    fn for_statement(&mut self) -> Result<Stmt, String> {
+        // Expect left brace for the components
+        self.consume(TokenType::LeftBrace, "Expect '{' after 'for'")?;
+
+        // Parse the initializer expression - this is special handling for variable declarations
+        let initializer = if self.match_token(TokenType::Register) {
+            // We have a register (variable name), now we expect a colon
+            let name = self.previous().lexeme.clone();
+
+            self.consume(TokenType::Colon, "Expect ':' after register name in for loop initializer")?;
+
+            // Get the expression after the colon
+            let value_expr = self.expression()?;
+
+            // Create a binary expression to represent the declaration
+            let operator = Token::new(TokenType::Colon, ":".to_string(), self.previous().line);
+            Expr::Binary {
+                left: Box::new(Expr::VariableRef(name)),
+                operator,
+                right: Box::new(value_expr),
+            }
+        } else {
+            // Regular expression for initializer
+            self.expression()?
+        };
+
+        // Expect a comma
+        self.consume(TokenType::Comma, "Expect ',' after initializer in for loop")?;
+
+        // Parse the update expression
+        let update = self.expression()?;
+
+        // Expect a comma
+        self.consume(TokenType::Comma, "Expect ',' after update expression in for loop")?;
+
+        // Parse the condition
+        let condition = self.expression()?;
+
+        // Expect right brace
+        self.consume(TokenType::RightBrace, "Expect '}' after for loop components")?;
+
+        // Expect left bracket for loop body
+        self.consume(TokenType::LeftBracket, "Expect '[' to begin for loop body")?;
+
+        // Skip any newlines
+        while self.match_token(TokenType::Newline) {}
+
+        // Parse the loop body
+        let mut body = Vec::new();
+
+        // Continue until we hit a right bracket or EOF
+        while !self.check(TokenType::RightBracket) && !self.is_at_end() {
+            // Skip newlines
+            if self.match_token(TokenType::Newline) {
+                continue;
+            }
+
+            // Handle comments within blocks
+            if self.match_token(TokenType::Comment) {
+                let comment = self.previous().lexeme.clone();
+                body.push(Stmt::Comment(comment));
+                continue;
+            }
+
+            // Process the statement
+            let stmt = self.declaration()?;
+            body.push(stmt);
+        }
+
+        // Consume the closing bracket
+        self.consume(TokenType::RightBracket, "Expect ']' after for loop body")?;
+
+        Ok(Stmt::For {
+            initializer,
+            update,
+            condition,
+            body,
         })
     }
 

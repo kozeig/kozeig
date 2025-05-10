@@ -6,7 +6,7 @@
 
 Lüt (pronounced "loot" or "lewt") is a fun, simple programming language with a clean syntax designed for readability and ease of use. It's an experimental language under active development.
 
-> 24.1% of this codebase is AI Generated; includes .md files, examples and source code for Lüt
+> 28.7% of this codebase is AI Generated; includes .md files, examples and source code for Lüt
 
 ## Project Status
 
@@ -91,6 +91,8 @@ Recent improvements:
 - Arithmetic operations work correctly with proper type handling
 - Control flow with if/else statements is fully functional
 - Boolean expressions, comparisons, and ternary expressions are supported
+- Fixed loop variable updates in compiled binaries
+- Proper evaluation of break and continue statements in loops
 
 If you encounter issues, please file a bug report so the community can investigate and fix the problem.
 
@@ -174,6 +176,8 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 - ✅ **Logical Operators**: AND, OR, and NOT operations
 - ✅ **Unified Syntax**: Consistent syntax with curly braces for all code blocks
 - ✅ **Ternary Expressions**: Conditional expressions with the `?:` operator
+- ✅ **Loop Structures**: While and for loops with proper variable updating
+- ✅ **Loop Control Flow**: Support for break and continue statements
 
 ### In Progress
 - **Type System Improvements**: Better type handling and conversion

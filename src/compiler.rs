@@ -37,6 +37,9 @@ pub struct LLVMCompiler<'ctx> {
     atoll_func: FunctionValue<'ctx>,
     malloc_func: FunctionValue<'ctx>,
     strlen_func: FunctionValue<'ctx>,
+    // Loop control flow tracking
+    current_loop_exit: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    current_loop_continue: Option<inkwell::basic_block::BasicBlock<'ctx>>,
 }
 
 impl<'ctx> LLVMCompiler<'ctx> {
@@ -92,6 +95,8 @@ impl<'ctx> LLVMCompiler<'ctx> {
             atoll_func,
             malloc_func,
             strlen_func,
+            current_loop_exit: None,
+            current_loop_continue: None,
         }
     }
     
@@ -143,47 +148,60 @@ impl<'ctx> LLVMCompiler<'ctx> {
     fn compile_statement(&mut self, stmt: Stmt) -> Result<(), String> {
         match stmt {
             Stmt::Declaration { name, initializer } => {
-                // Check the initializer type before moving it
-                let is_boolean_expr = match &initializer {
-                    Expr::BooleanLiteral(_) => true,
-                    Expr::Binary { operator, .. } => {
-                        // Check if this is a comparison operator
-                        matches!(
-                            operator.token_type,
-                            TokenType::Equal | TokenType::NotEqual | TokenType::Less |
-                            TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual |
-                            TokenType::And | TokenType::Or
-                        )
-                    },
-                    _ => false
-                };
+                // Check if this is a variable update (name already exists)
+                if self.variables.contains_key(&name) {
+                    // This is a variable update, not a declaration
+                    let value = self.compile_expression(initializer)?;
+                    if let Some(ptr) = self.variables.get(&name) {
+                        // Store the new value in the existing variable
+                        self.builder.build_store(*ptr, value).unwrap();
+                    } else {
+                        return Err(format!("Variable '{}' referenced before declaration", name));
+                    }
+                } else {
+                    // This is a new variable declaration
+                    // Check the initializer type before moving it
+                    let is_boolean_expr = match &initializer {
+                        Expr::BooleanLiteral(_) => true,
+                        Expr::Binary { operator, .. } => {
+                            // Check if this is a comparison operator
+                            matches!(
+                                operator.token_type,
+                                TokenType::Equal | TokenType::NotEqual | TokenType::Less |
+                                TokenType::LessEqual | TokenType::Greater | TokenType::GreaterEqual |
+                                TokenType::And | TokenType::Or
+                            )
+                        },
+                        _ => false
+                    };
 
-                // Create a variable (alloca) in the entry block
-                let value = self.compile_expression(initializer)?;
+                    // Create a variable (alloca) in the entry block
+                    let value = self.compile_expression(initializer)?;
 
-                // Create the appropriate type of alloca based on the value type
-                let (ptr, var_type) = match value {
-                    BasicValueEnum::IntValue(_) => {
-                        // For both integers and booleans, use i64 type
-                        let ptr = self.create_entry_block_alloca(&name);
+                    // Create the appropriate type of alloca based on the value type
+                    let (ptr, var_type) = match value {
+                        BasicValueEnum::IntValue(_) => {
+                            // For both integers and booleans, use i64 type
+                            let ptr = self.create_entry_block_alloca(&name);
 
-                        if is_boolean_expr {
-                            (ptr, VariableType::Boolean)
-                        } else {
-                            (ptr, VariableType::Integer)
-                        }
-                    },
-                    BasicValueEnum::PointerValue(_) => {
-                        // For strings, use pointer type
-                        let ptr = self.create_pointer_alloca(&name);
-                        (ptr, VariableType::String)
-                    },
-                    _ => return Err("Unsupported variable type".to_string())
-                };
-                
-                self.builder.build_store(ptr, value).unwrap();
-                self.variables.insert(name.clone(), ptr);
-                self.variable_types.insert(name, var_type);
+                            if is_boolean_expr {
+                                (ptr, VariableType::Boolean)
+                            } else {
+                                (ptr, VariableType::Integer)
+                            }
+                        },
+                        BasicValueEnum::PointerValue(_) => {
+                            // For strings, use pointer type
+                            let ptr = self.create_pointer_alloca(&name);
+                            (ptr, VariableType::String)
+                        },
+                        _ => return Err("Unsupported variable type".to_string())
+                    };
+
+                    self.builder.build_store(ptr, value).unwrap();
+                    self.variables.insert(name.clone(), ptr);
+                    self.variable_types.insert(name, var_type);
+                }
             },
             Stmt::Expression(expr) => {
                 // Just evaluate the expression for its side effects
@@ -226,15 +244,15 @@ impl<'ctx> LLVMCompiler<'ctx> {
             Stmt::If { condition, then_branch, else_branch } => {
                 // Get the current function
                 let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-                
+
                 // Create blocks for the then, else, and merge parts
                 let then_block = self.context.append_basic_block(current_function, "then");
                 let else_block = self.context.append_basic_block(current_function, "else");
                 let merge_block = self.context.append_basic_block(current_function, "ifcont");
-                
+
                 // Compile the condition
                 let condition_value = self.compile_expression(condition)?;
-                
+
                 // Convert the condition to a boolean value (0 or 1)
                 let condition_value = match condition_value {
                     BasicValueEnum::IntValue(int_val) => {
@@ -249,42 +267,310 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     },
                     _ => return Err("Expected integer condition in if statement".to_string())
                 };
-                
+
                 // Create the conditional branch instruction based on the condition
                 self.builder.build_conditional_branch(condition_value, then_block, else_block).unwrap();
-                
+
                 // Build the then block
                 self.builder.position_at_end(then_block);
-                
+
                 // Compile all statements in the then branch
                 for stmt in then_branch {
                     self.compile_statement(stmt)?;
                 }
-                
+
                 // Branch to the merge block
                 self.builder.build_unconditional_branch(merge_block).unwrap();
-                
+
                 // Remember the current block to handle nested ifs properly
                 let _then_end_block = self.builder.get_insert_block().unwrap();
-                
+
                 // Build the else block
                 self.builder.position_at_end(else_block);
-                
+
                 // Compile all statements in the else branch if it exists
                 if let Some(else_statements) = else_branch {
                     for stmt in else_statements {
                         self.compile_statement(stmt)?;
                     }
                 }
-                
+
                 // Branch to the merge block
                 self.builder.build_unconditional_branch(merge_block).unwrap();
-                
+
                 // Remember the current block
                 let _else_end_block = self.builder.get_insert_block().unwrap();
-                
+
                 // Set the insertion point to the merge block for subsequent code
                 self.builder.position_at_end(merge_block);
+            },
+            Stmt::While { condition, body } => {
+                // Get the current function
+                let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+
+                // Create basic blocks for the loop
+                let condition_block = self.context.append_basic_block(current_function, "while_cond");
+                let body_block = self.context.append_basic_block(current_function, "while_body");
+                let exit_block = self.context.append_basic_block(current_function, "while_exit");
+
+                // Branch to the condition block
+                self.builder.build_unconditional_branch(condition_block).unwrap();
+
+                // Start with the condition block
+                self.builder.position_at_end(condition_block);
+
+                // Compile the condition
+                let condition_value = self.compile_expression(condition.clone())?;
+
+                // Convert to boolean (0 or 1)
+                let condition_bool = match condition_value {
+                    BasicValueEnum::IntValue(int_val) => {
+                        // Compare with 0 to get a boolean value (0 = false, anything else = true)
+                        let zero = self.i64_type.const_int(0, false);
+                        self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            int_val,
+                            zero,
+                            "while_cond"
+                        ).unwrap()
+                    },
+                    _ => return Err("Expected integer condition in while loop".to_string())
+                };
+
+                // Conditional branch: if condition is true, go to body, otherwise exit
+                self.builder.build_conditional_branch(condition_bool, body_block, exit_block).unwrap();
+
+                // Set up the loop body block
+                self.builder.position_at_end(body_block);
+
+                // Save the old loop exit and continue blocks (for nested loops)
+                let old_loop_exit = self.current_loop_exit;
+                let old_loop_continue = self.current_loop_continue;
+
+                // Update the current loop exit and continue blocks
+                self.current_loop_exit = Some(exit_block);
+                self.current_loop_continue = Some(condition_block); // Continue goes back to condition
+
+                // Compile the loop body
+                for stmt in body {
+                    self.compile_statement(stmt)?;
+                }
+
+                // Restore the old loop exit and continue blocks
+                self.current_loop_exit = old_loop_exit;
+                self.current_loop_continue = old_loop_continue;
+
+                // Unconditionally branch back to the condition block
+                self.builder.build_unconditional_branch(condition_block).unwrap();
+
+                // Position at the exit block for subsequent code
+                self.builder.position_at_end(exit_block);
+            },
+            Stmt::For { initializer, update, condition, body } => {
+                // Get the current function
+                let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+
+                // Create the initialization block
+                let init_block = self.context.append_basic_block(current_function, "for_init");
+
+                // Create basic blocks for the loop
+                let condition_block = self.context.append_basic_block(current_function, "for_cond");
+                let body_block = self.context.append_basic_block(current_function, "for_body");
+                let update_block = self.context.append_basic_block(current_function, "for_update");
+                let exit_block = self.context.append_basic_block(current_function, "for_exit");
+
+                // Branch to the initialization block
+                self.builder.build_unconditional_branch(init_block).unwrap();
+
+                // Set up the initialization block
+                self.builder.position_at_end(init_block);
+
+                // Special handling for initializer to support variable declarations
+                match &initializer {
+                    Expr::Binary { left, operator, right } => {
+                        // Check if this looks like a declaration (i : 0)
+                        if operator.token_type == TokenType::Colon {
+                            if let Expr::VariableRef(name) = &**left {
+                                // This is a variable declaration - evaluate right side and create variable
+                                let value = self.compile_expression(*right.clone())?;
+
+                                // Create a variable (alloca) in the entry block
+                                // Infer the type from the right side expression
+                                let (ptr, var_type) = match value {
+                                    BasicValueEnum::IntValue(_) => {
+                                        // Regular integer value
+                                        let ptr = self.create_entry_block_alloca(name);
+                                        (ptr, VariableType::Integer)
+                                    },
+                                    BasicValueEnum::PointerValue(_) => {
+                                        // For strings, use pointer type
+                                        let ptr = self.create_pointer_alloca(name);
+                                        (ptr, VariableType::String)
+                                    },
+                                    _ => return Err("Unsupported variable type".to_string())
+                                };
+
+                                // Store the value in the variable
+                                self.builder.build_store(ptr, value).unwrap();
+
+                                // Add the variable to our variable maps
+                                self.variables.insert(name.clone(), ptr);
+                                self.variable_types.insert(name.clone(), var_type);
+                            } else {
+                                // Just evaluate it normally
+                                self.compile_expression(initializer.clone())?;
+                            }
+                        } else {
+                            // Just evaluate it normally
+                            self.compile_expression(initializer.clone())?;
+                        }
+                    }
+                    _ => {
+                        // Just evaluate it normally
+                        self.compile_expression(initializer.clone())?;
+                    }
+                };
+
+                // Branch to the condition block
+                self.builder.build_unconditional_branch(condition_block).unwrap();
+
+                // Set up the condition block
+                self.builder.position_at_end(condition_block);
+
+                // Compile the condition
+                let condition_value = self.compile_expression(condition.clone())?;
+
+                // Convert to boolean (0 or 1)
+                let condition_bool = match condition_value {
+                    BasicValueEnum::IntValue(int_val) => {
+                        // Compare with 0 to get a boolean value (0 = false, anything else = true)
+                        let zero = self.i64_type.const_int(0, false);
+                        self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE,
+                            int_val,
+                            zero,
+                            "for_cond"
+                        ).unwrap()
+                    },
+                    _ => return Err("Expected integer condition in for loop".to_string())
+                };
+
+                // Conditional branch: if condition is true, go to body, otherwise exit
+                self.builder.build_conditional_branch(condition_bool, body_block, exit_block).unwrap();
+
+                // Set up the loop body block
+                self.builder.position_at_end(body_block);
+
+                // Save the old loop exit and continue blocks (for nested loops)
+                let old_loop_exit = self.current_loop_exit;
+                let old_loop_continue = self.current_loop_continue;
+
+                // Update the current loop exit and continue blocks
+                self.current_loop_exit = Some(exit_block);
+                self.current_loop_continue = Some(update_block); // Continue goes to update
+
+                // Compile the loop body
+                for stmt in body {
+                    self.compile_statement(stmt)?;
+                }
+
+                // Restore the old loop exit and continue blocks
+                self.current_loop_exit = old_loop_exit;
+                self.current_loop_continue = old_loop_continue;
+
+                // After the body, branch to the update block
+                self.builder.build_unconditional_branch(update_block).unwrap();
+
+                // Set up the update block
+                self.builder.position_at_end(update_block);
+
+                // Special handling for update expression to properly update variables
+                match &update {
+                    Expr::Binary { left, operator, right } => {
+                        // Handle variable assignment (i : value)
+                        if operator.token_type == TokenType::Colon {
+                            if let Expr::VariableRef(name) = &**left {
+                                // This is a variable assignment - evaluate right side and update variable
+                                let value = self.compile_expression(*right.clone())?;
+
+                                // Get the variable's allocation
+                                if let Some(ptr) = self.variables.get(name) {
+                                    // Store the new value
+                                    self.builder.build_store(*ptr, value).unwrap();
+                                } else {
+                                    return Err(format!("Undefined variable in for loop update: {}", name));
+                                }
+                            } else {
+                                // Just evaluate it normally
+                                self.compile_expression(update.clone())?;
+                            }
+                        } else {
+                            // Not an assignment, might be an expression that calculates a new value
+                            // Check if this is a recognized update pattern like "$i + 1"
+                            if let Expr::VariableRef(var_name) = &**left {
+                                if var_name.starts_with('$') {
+                                    // Extract the actual variable name (without $)
+                                    let actual_name = var_name[1..].to_string();
+
+                                    // Compile the expression to get the new value
+                                    let result = self.compile_expression(update.clone())?;
+
+                                    // Get the variable's allocation
+                                    if let Some(ptr) = self.variables.get(&actual_name) {
+                                        // Store the new value
+                                        self.builder.build_store(*ptr, result).unwrap();
+                                    } else {
+                                        return Err(format!("Undefined variable in for loop update: {}", actual_name));
+                                    }
+                                } else {
+                                    // Just evaluate it normally
+                                    self.compile_expression(update.clone())?;
+                                }
+                            } else {
+                                // Just evaluate it normally
+                                self.compile_expression(update.clone())?;
+                            }
+                        }
+                    }
+                    _ => {
+                        // Regular expression
+                        self.compile_expression(update.clone())?;
+                    }
+                };
+
+                // Branch back to the condition block
+                self.builder.build_unconditional_branch(condition_block).unwrap();
+
+                // Position at the exit block for subsequent code
+                self.builder.position_at_end(exit_block);
+            },
+            Stmt::Break => {
+                // Check if we're in a loop
+                if let Some(exit_block) = self.current_loop_exit {
+                    // Branch to the loop exit block
+                    self.builder.build_unconditional_branch(exit_block).unwrap();
+
+                    // Create an unreachable block for subsequent code
+                    let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                    let unreachable_block = self.context.append_basic_block(current_function, "after_break");
+                    self.builder.position_at_end(unreachable_block);
+                } else {
+                    return Err("Break statement outside of loop".to_string());
+                }
+            },
+            Stmt::Continue => {
+                // Check if we're in a loop
+                if let Some(continue_block) = self.current_loop_continue {
+                    // Branch to the loop continue block
+                    self.builder.build_unconditional_branch(continue_block).unwrap();
+
+                    // Create an unreachable block for subsequent code
+                    let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+                    let unreachable_block = self.context.append_basic_block(current_function, "after_continue");
+                    self.builder.position_at_end(unreachable_block);
+                } else {
+                    return Err("Continue statement outside of loop".to_string());
+                }
             }
         }
         
@@ -448,9 +734,29 @@ impl<'ctx> LLVMCompiler<'ctx> {
                 }
             },
             Expr::Binary { left, operator, right } => {
+                // Special handling for assignment with colon operator
+                if operator.token_type == TokenType::Colon {
+                    if let Expr::VariableRef(name) = &*left {
+                        // This is an assignment: var_name : value
+                        // Evaluate the right side first
+                        let value = self.compile_expression(*right.clone())?;
+
+                        // Check if the variable already exists
+                        if let Some(ptr) = self.variables.get(name) {
+                            // Variable exists, update its value
+                            self.builder.build_store(*ptr, value).unwrap();
+                            return Ok(value); // Return the assigned value
+                        } else {
+                            // This is handled in the declaration part, should not happen here
+                            return Err(format!("Variable '{}' not found for assignment", name));
+                        }
+                    }
+                }
+
+                // Regular binary expression (non-assignment)
                 let left_val = self.compile_expression(*left)?;
                 let right_val = self.compile_expression(*right)?;
-                
+
                 // Helper function to convert a value to integer if possible
                 let to_int_value = |val: BasicValueEnum<'ctx>| -> Result<inkwell::values::IntValue<'ctx>, String> {
                     match val {
@@ -462,17 +768,17 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                 &[ptr_val.into()],
                                 "atoll_call"
                             ).unwrap();
-                            
+
                             Ok(result.try_as_basic_value().left().unwrap().into_int_value())
                         },
                         _ => Err("Cannot convert value to integer".to_string())
                     }
                 };
-                
+
                 // Try to convert both operands to integers
                 let left_int = to_int_value(left_val)?;
                 let right_int = to_int_value(right_val)?;
-                
+
                 match operator.token_type {
                     TokenType::Plus => {
                         let result = self.builder.build_int_add(left_int, right_int, "add").unwrap();

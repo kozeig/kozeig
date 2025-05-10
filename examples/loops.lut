@@ -1,0 +1,58 @@
+@@ Loops demonstration in Lüt
+
+@@ While loop syntax:
+@@ while { condition } [ statements ]
+
+@@ Basic while loop
+count : 0
+print { 'While loop demonstration:' }
+while { $count < 5 } [
+    print { 'Count is: ', $count }
+    count : $count + 1
+]
+
+@@ For loop syntax:
+@@ for { init, update, condition } [ statements ]
+
+@@ Basic for loop with traditional counter
+print { 'For loop demonstration:' }
+for { i : 0, $i + 1, $i < 5 } [
+    print { 'Index is: ', $i }
+]
+
+@@ For loop using a custom increment
+print { 'For loop with custom increment:' }
+for { j : 0, $j + 2, $j < 10 } [
+    print { 'Even number: ', $j }
+]
+
+@@ Nested loops example
+print { 'Nested loops:' }
+for { i : 0, $i + 1, $i < 3 } [
+    for { j : 0, $j + 1, $j < 3 } [
+        print { 'Position (', $i, ',', $j, ')' }
+    ]
+]
+
+@@ Loop with break condition
+print { 'Loop with break:' }
+k : 0
+while { true } [
+    print { 'k = ', $k }
+    k : $k + 1
+
+    if { $k >= 5 } [
+        print { 'Breaking the loop!' }
+        break
+    ]
+]
+
+@@ Loop with continue
+print { 'Loop with continue:' }
+for { n : 0, $n + 1, $n < 10 } [
+    if { $n % 2 == 0 } [
+        @@ Skip even numbers
+        continue
+    ]
+    print { 'Odd number: ', $n }
+]

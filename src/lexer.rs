@@ -10,6 +10,10 @@ pub enum TokenType {
     Boolean,         // boolean literal (true/false)
     If,              // 'if' keyword
     Else,            // 'else' keyword
+    While,           // 'while' keyword
+    For,             // 'for' keyword
+    Break,           // 'break' keyword
+    Continue,        // 'continue' keyword
 
     // Symbols
     Colon,           // ':'
@@ -17,6 +21,8 @@ pub enum TokenType {
     Comma,           // ','
     Semicolon,       // ';'
     QuestionMark,    // '?'
+    LeftBracket,     // '['
+    RightBracket,    // ']'
 
     // Arithmetic operators
     Plus,            // '+'
@@ -151,6 +157,8 @@ impl Lexer {
             ')' => self.tokens.push(Token::new(TokenType::RightParen, ")".to_string(), self.line)),
             '{' => self.tokens.push(Token::new(TokenType::LeftBrace, "{".to_string(), self.line)),
             '}' => self.tokens.push(Token::new(TokenType::RightBrace, "}".to_string(), self.line)),
+            '[' => self.tokens.push(Token::new(TokenType::LeftBracket, "[".to_string(), self.line)),
+            ']' => self.tokens.push(Token::new(TokenType::RightBracket, "]".to_string(), self.line)),
             '=' => {
                 if self.match_char('=') {
                     self.tokens.push(Token::new(TokenType::Equal, "==".to_string(), self.line));
@@ -219,6 +227,10 @@ impl Lexer {
             "true" | "false" => self.tokens.push(Token::new(TokenType::Boolean, text, self.line)),
             "if" => self.tokens.push(Token::new(TokenType::If, text, self.line)),
             "else" => self.tokens.push(Token::new(TokenType::Else, text, self.line)),
+            "while" => self.tokens.push(Token::new(TokenType::While, text, self.line)),
+            "for" => self.tokens.push(Token::new(TokenType::For, text, self.line)),
+            "break" => self.tokens.push(Token::new(TokenType::Break, text, self.line)),
+            "continue" => self.tokens.push(Token::new(TokenType::Continue, text, self.line)),
             "print" | "text" | "number" | "bool" | "asc" => self.tokens.push(Token::new(TokenType::Command, text, self.line)),
             _ => self.tokens.push(Token::new(TokenType::Register, text, self.line)),
         }

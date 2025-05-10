@@ -2,8 +2,17 @@ use std::collections::HashMap;
 use crate::lexer::{Lexer, TokenType};
 use crate::parser::{Parser, Stmt, Expr};
 
+// Control flow handling
+#[derive(Debug, Clone, PartialEq)]
+enum ControlFlow {
+    None,
+    Break,
+    Continue,
+}
+
 pub struct Interpreter {
     environment: HashMap<String, Value>,
+    control_flow: ControlFlow,
 }
 
 #[derive(Debug, Clone)]
@@ -29,18 +38,29 @@ impl Interpreter {
     pub fn new() -> Self {
         Interpreter {
             environment: HashMap::new(),
+            control_flow: ControlFlow::None,
         }
     }
     
     pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), String> {
         for stmt in statements {
             self.execute(stmt)?;
+
+            // Check for control flow interruptions at the top level
+            if self.control_flow != ControlFlow::None {
+                return Err("Unexpected break or continue outside of loop".to_string());
+            }
         }
-        
+
         Ok(())
     }
-    
+
     fn execute(&mut self, stmt: Stmt) -> Result<(), String> {
+        // Check for control flow interruptions before executing any statement
+        if self.control_flow != ControlFlow::None {
+            return Ok(());  // Skip this statement if we're in a break or continue state
+        }
+
         match stmt {
             Stmt::Declaration { name, initializer } => {
                 let value = self.evaluate(initializer)?;
@@ -78,12 +98,12 @@ impl Interpreter {
                     println!();
                     return Ok(());
                 }
-                
+
                 let mut result = String::new();
                 for (i, expr) in exprs.iter().enumerate() {
                     let value = self.evaluate(expr.clone())?;
                     result.push_str(&value.to_string());
-                    
+
                     // Add space between arguments (but not after the last one)
                     if i < exprs.len() - 1 {
                         result.push(' ');
@@ -94,9 +114,15 @@ impl Interpreter {
             Stmt::Comment(_) => {
                 // ignore comments during execution
             }
+            Stmt::Break => {
+                self.control_flow = ControlFlow::Break;
+            }
+            Stmt::Continue => {
+                self.control_flow = ControlFlow::Continue;
+            }
             Stmt::If { condition, then_branch, else_branch } => {
                 let condition_value = self.evaluate(condition)?;
-                
+
                 // Determine if the condition is "truthy"
                 let is_truthy = match condition_value {
                     Value::Boolean(b) => b,
@@ -104,16 +130,151 @@ impl Interpreter {
                     Value::Text(s) => !s.is_empty(),
                     Value::Null => false,
                 };
-                
+
                 if is_truthy {
                     // Execute the then branch
                     for stmt in then_branch {
                         self.execute(stmt)?;
+
+                        // Check for control flow interruptions
+                        if self.control_flow != ControlFlow::None {
+                            break;
+                        }
                     }
                 } else if let Some(else_statements) = else_branch {
                     // Execute the else branch if it exists
                     for stmt in else_statements {
                         self.execute(stmt)?;
+
+                        // Check for control flow interruptions
+                        if self.control_flow != ControlFlow::None {
+                            break;
+                        }
+                    }
+                }
+            }
+            Stmt::While { condition, body } => {
+                loop {
+                    // Evaluate the condition
+                    let condition_value = self.evaluate(condition.clone())?;
+
+                    // Determine if the condition is "truthy"
+                    let is_truthy = match condition_value {
+                        Value::Boolean(b) => b,
+                        Value::Number(n) => n != 0,
+                        Value::Text(s) => !s.is_empty(),
+                        Value::Null => false,
+                    };
+
+                    if !is_truthy {
+                        break;  // Exit the loop if the condition is false
+                    }
+
+                    // Execute the loop body
+                    for stmt in body.clone() {
+                        self.execute(stmt)?;
+
+                        // Check for control flow interruptions
+                        if self.control_flow == ControlFlow::Break {
+                            self.control_flow = ControlFlow::None;  // Reset control flow
+                            return Ok(());  // Exit the loop
+                        } else if self.control_flow == ControlFlow::Continue {
+                            self.control_flow = ControlFlow::None;  // Reset control flow
+                            break;  // Go to the next iteration
+                        }
+                    }
+                }
+            }
+            Stmt::For { initializer, update, condition, body } => {
+                // Handle initializer specially to support variable declarations
+                match &initializer {
+                    Expr::Binary { left, operator, right } => {
+                        // Check if this looks like a declaration (i : 0)
+                        if operator.token_type == TokenType::Colon {
+                            if let Expr::VariableRef(name) = &**left {
+                                // This is a variable declaration - evaluate right side and set variable
+                                let value = self.evaluate(*right.clone())?;
+                                self.environment.insert(name.clone(), value);
+                            } else {
+                                // Just evaluate it normally
+                                self.evaluate(initializer.clone())?;
+                            }
+                        } else {
+                            // Just evaluate it normally
+                            self.evaluate(initializer.clone())?;
+                        }
+                    }
+                    _ => {
+                        // Just evaluate it normally
+                        self.evaluate(initializer.clone())?;
+                    }
+                }
+
+                loop {
+                    // Evaluate the condition
+                    let condition_value = self.evaluate(condition.clone())?;
+
+                    // Determine if the condition is "truthy"
+                    let is_truthy = match condition_value {
+                        Value::Boolean(b) => b,
+                        Value::Number(n) => n != 0,
+                        Value::Text(s) => !s.is_empty(),
+                        Value::Null => false,
+                    };
+
+                    if !is_truthy {
+                        break;  // Exit the loop if the condition is false
+                    }
+
+                    // Execute the loop body
+                    for stmt in body.clone() {
+                        self.execute(stmt)?;
+
+                        // Check for control flow interruptions
+                        if self.control_flow == ControlFlow::Break {
+                            self.control_flow = ControlFlow::None;  // Reset control flow
+                            return Ok(());  // Exit the loop
+                        } else if self.control_flow == ControlFlow::Continue {
+                            self.control_flow = ControlFlow::None;  // Reset control flow
+                            break;  // Go to the next iteration
+                        }
+                    }
+
+                    // Update the loop counter - special handling for assignments
+                    match &update {
+                        Expr::Binary { left, operator, right } => {
+                            // Handle variable assignment (i : value)
+                            if operator.token_type == TokenType::Colon {
+                                if let Expr::VariableRef(name) = &**left {
+                                    // This is a variable assignment - evaluate right side and set variable
+                                    let value = self.evaluate(*right.clone())?;
+                                    self.environment.insert(name.clone(), value);
+                                } else {
+                                    // Just evaluate it normally
+                                    self.evaluate(update.clone())?;
+                                }
+                            } else {
+                                // Not an assignment, might be an expression that calculates a new value
+                                // Get the result of the expression
+                                let result = self.evaluate(update.clone())?;
+
+                                // Check if this is a recognized update pattern like "$i + 1"
+                                if let Expr::Binary { left: var_expr, operator: _, right: _ } = &update {
+                                    if let Expr::VariableRef(var_name) = &**var_expr {
+                                        if var_name.starts_with('$') {
+                                            // Extract the actual variable name (without $)
+                                            let actual_name = var_name[1..].to_string();
+                                            // Update the variable with the result
+                                            self.environment.insert(actual_name, result);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            // Regular expression
+                            self.evaluate(update.clone())?;
+                        }
                     }
                 }
             }

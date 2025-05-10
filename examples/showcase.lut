@@ -1,6 +1,16 @@
 @@ Lüt Language Showcase
 @@ This example demonstrates all the major features of the Lüt language with the new unified syntax
 
+@@ Table of Contents:
+@@ - Variable Declaration and Data Types
+@@ - Arithmetic Operations
+@@ - Type Conversion
+@@ - Logical Operators
+@@ - Conditional Logic
+@@ - Ternary Operator
+@@ - Loops and Iteration
+@@ - ASCII Conversion
+
 @@ ----------------
 @@ Variable Declaration and Data Types
 @@ ----------------
@@ -149,34 +159,34 @@ print { 'not_false (!$is_same) = ', $not_false }
 print { '\n--- Conditional Logic ---' }
 
 @@ Simple if-else
-if $is_adult {
+if { $is_adult } [
     print { $name, ' is an adult' }
-} else {
+] else [
     print { $name, ' is not an adult' }
-}
+]
 
 @@ Complex conditions
 has_discount : false
-if $is_adult && !$has_discount {
+if { $is_adult && !$has_discount } [
     print { $name, ' is eligible for a discount' }
-}
+]
 
 @@ Nested if statements
-if $score > 90 {
+if { $score > 90 } [
     print { 'Excellent score!' }
 
-    if $age < 20 {
+    if { $age < 20 } [
         print { 'Impressive for your age!' }
-    } else {
+    ] else [
         print { 'Well done!' }
-    }
-} else {
-    if $score > 70 {
+    ]
+] else [
+    if { $score > 70 } [
         print { 'Good score!' }
-    } else {
+    ] else [
         print { 'Keep practicing!' }
-    }
-}
+    ]
+]
 
 @@ ----------------
 @@ Ternary Operator
@@ -212,3 +222,62 @@ e_char : { asc 101 } @@ e
 l_char : { asc 108 } @@ l
 o_char : { asc 111 } @@ o
 print { 'Hello from ASCII: ', $h_char, $e_char, $l_char, $l_char, $o_char, '!' }
+
+@@ ----------------
+@@ Loops and Iteration
+@@ ----------------
+
+print { '\n--- While Loop ---' }
+
+@@ Basic while loop
+counter : 0
+while { $counter < 5 } [
+    print { 'Counter: ', $counter }
+    counter : $counter + 1
+]
+
+print { '\n--- For Loop ---' }
+
+@@ Traditional for loop with increment
+for { i : 0, $i + 1, $i < 5 } [
+    print { 'Index: ', $i }
+]
+
+@@ For loop with custom step value
+print { '\n--- For Loop with Step Value ---' }
+for { j : 0, $j + 2, $j <= 10 } [
+    print { 'Even number: ', $j }
+]
+
+@@ Nested loops
+print { '\n--- Nested Loops ---' }
+for { row : 0, $row + 1, $row < 3 } [
+    line : ''
+    for { col : 0, $col + 1, $col < 3 } [
+        cell : $row * 3 + $col
+        line : $line + { text $cell } + ' '
+    ]
+    print { 'Row ', $row, ': ', $line }
+]
+
+@@ Loop with break statement
+print { '\n--- Loop with Break ---' }
+m : 0
+while { true } [
+    print { 'Testing break: ', $m }
+    m : $m + 1
+
+    if { $m >= 3 } [
+        print { 'Breaking loop!' }
+        break
+    ]
+]
+
+@@ Loop with continue statement
+print { '\n--- Loop with Continue ---' }
+for { n : 0, $n + 1, $n < 6 } [
+    if { $n % 2 == 0 } [
+        continue  @@ Skip even numbers
+    ]
+    print { 'Odd number: ', $n }
+]

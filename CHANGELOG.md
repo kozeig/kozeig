@@ -1,6 +1,18 @@
 # Lüt Language Changelog
 
-## Version 0.2.0 - Syntax Unification (Current)
+## Version 0.3.0 - Loop Improvements & Bug Fixes (Current)
+
+### Fixes
+* **Loop Variable Updates**: Fixed a critical issue in the compiler where variable updates inside loops weren't properly applied in compiled programs
+* **Compiler Robustness**: Enhanced variable assignment handling to distinguish between declarations and updates
+* **Memory Correctness**: Addressed an issue where loop counters weren't being properly incremented in compiled binaries
+
+### Implementation Details
+* **Binary Expression Handling**: Improved handling of binary expressions with assignment operators
+* **Variable Reference Context**: Better detection of variable update contexts versus declarations
+* **LLVM IR Generation**: Fixed LLVM IR generation for variable updates in loop bodies
+
+## Version 0.2.0 - Syntax Unification
 
 ### Major Changes
 

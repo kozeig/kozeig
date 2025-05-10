@@ -298,11 +298,11 @@ This creates an executable file named after your program that can be run directl
 Lüt supports conditional execution with if-else statements:
 
 ```lut
-if <expression> {
+if { <expression> } [
     @@ then branch statements
-} else {
+] else [
     @@ else branch statements (optional)
-}
+]
 ```
 
 Example:
@@ -310,11 +310,11 @@ Example:
 ```lut
 age : { number 25 }
 
-if $age >= 18 {
+if { $age >= 18 } [
     print { 'You are an adult' }
-} else {
+] else [
     print { 'You are under 18' }
-}
+]
 ```
 
 If statements evaluate an expression, and if the expression is "truthy" (non-zero, non-empty, or true), the then branch is executed. Otherwise, the else branch is executed if it exists.
@@ -324,17 +324,17 @@ Nested if statements are also supported:
 ```lut
 score : { number 85 }
 
-if $score >= 60 {
+if { $score >= 60 } [
     print { 'You passed!' }
 
-    if $score >= 90 {
+    if { $score >= 90 } [
         print { 'Excellent job!' }
-    } else {
+    ] else [
         print { 'Good job!' }
-    }
-} else {
+    ]
+] else [
     print { 'You failed.' }
-}
+]
 ```
 
 ### Comparison Operators
@@ -354,15 +354,15 @@ Example:
 a : { number 10 }
 b : { number 20 }
 
-if $a < $b {
+if { $a < $b } [
     print { '$a is less than $b' }
-}
+]
 
-if $a == $b {
+if { $a == $b } [
     print { '$a is equal to $b' }
-} else {
+] else [
     print { '$a is not equal to $b' }
-}
+]
 ```
 
 ### Logical Operators
@@ -389,9 +389,109 @@ out_of_range : $b < 0 || $b > 100
 valid : true
 invalid : !$valid
 
-if $in_range && !$out_of_range {
+if { $in_range && !$out_of_range } [
     print { 'All conditions met' }
-}
+]
+```
+
+### Loops
+
+Lüt provides two types of loops for iteration: while loops and for loops. Both use square brackets `[]` to denote the loop body.
+
+#### While Loops
+
+While loops execute a block of code as long as a condition is true:
+
+```lut
+while { condition } [
+    @@ loop body statements
+    @@ Variable updates within loops work correctly in both interpreter and compiler
+]
+```
+
+Example:
+
+```lut
+counter : 0
+while { $counter < 5 } [
+    print { 'Counter: ', $counter }
+    counter : $counter + 1
+]
+```
+
+#### For Loops
+
+For loops provide a more structured approach with initialization, update, and condition expressions:
+
+```lut
+for { initialization, update, condition } [
+    @@ loop body statements
+    @@ Variable updates within loops work correctly in both interpreter and compiler
+]
+```
+
+Example:
+
+```lut
+@@ Count from 0 to 4
+for { i : 0, $i + 1, $i < 5 } [
+    print { 'Index: ', $i }
+]
+
+@@ Count by 2s (even numbers)
+for { j : 0, $j + 2, $j < 10 } [
+    print { 'Even number: ', $j }
+]
+```
+
+The three expressions in a for loop are:
+1. **Initialization**: Executed once before the loop starts (typically a variable declaration)
+2. **Update**: Applied after each iteration (typically incrementing a counter)
+3. **Condition**: Checked before each iteration - the loop continues as long as this is true
+
+#### Loop Control Statements
+
+Lüt provides two special statements to control loop execution:
+
+##### Break Statement
+
+The `break` statement immediately exits a loop:
+
+```lut
+count : 0
+while { true } [  @@ Infinite loop
+    print { 'Count: ', $count }
+    count : $count + 1
+
+    if { $count >= 5 } [
+        break  @@ Exit the loop when count reaches 5
+    ]
+]
+```
+
+##### Continue Statement
+
+The `continue` statement skips the rest of the current iteration and jumps to the next iteration:
+
+```lut
+for { i : 0, $i + 1, $i < 10 } [
+    if { $i % 2 == 0 } [
+        continue  @@ Skip even numbers
+    ]
+    print { 'Odd number: ', $i }
+]
+```
+
+#### Nested Loops
+
+Loops can be nested inside other loops:
+
+```lut
+for { i : 0, $i + 1, $i < 3 } [
+    for { j : 0, $j + 1, $j < 3 } [
+        print { 'Position (', $i, ',', $j, ')' }
+    ]
+]
 ```
 
 ## Implementation Details
@@ -410,6 +510,7 @@ The compiler implements several safety features:
 1. **Division by zero protection**: Runtime checks prevent division and modulo operations with a zero denominator.
 2. **Type tracking**: Variables are tracked by type (Integer, String, Boolean) to ensure proper LLVM IR generation.
 3. **Detailed error messages**: Compilation errors provide specific information about where and why things went wrong.
+4. **Variable update tracking**: Variables updates are properly handled in loops, conditionals, and other contexts.
 
 ### Compiler Pipeline
 
