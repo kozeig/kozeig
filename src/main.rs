@@ -87,18 +87,31 @@ fn main() {
         }
         "run" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut run <file>");
+                eprintln!("Usage: lut run <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
-            
+
+            // Check for silent mode flag
+            let silent_mode = args.iter().any(|arg| arg == "-s" || arg == "--silent");
+
             match fs::read_to_string(file_path) {
                 Ok(source) => {
-                    match interpreter::run(&source) {
-                        Ok(_) => (),
-                        Err(e) => {
-                            eprintln!("Runtime error: {}", e);
-                            process::exit(1);
+                    if silent_mode {
+                        match interpreter::run_silent(&source) {
+                            Ok(_) => (),
+                            Err(e) => {
+                                eprintln!("Runtime error: {}", e);
+                                process::exit(1);
+                            }
+                        }
+                    } else {
+                        match interpreter::run(&source) {
+                            Ok(_) => (),
+                            Err(e) => {
+                                eprintln!("Runtime error: {}", e);
+                                process::exit(1);
+                            }
                         }
                     }
                 }
