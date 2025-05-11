@@ -4,8 +4,11 @@ use crate::lexer::{Token, TokenType};
 pub enum Expr {
     VariableRef(String),
     NumberLiteral(i64),
+    FloatLiteral(f64),
     TextLiteral(String),
     BooleanLiteral(bool),
+    ArrayLiteral(Vec<Expr>),           // 1D array literal [1, 2, 3, 4]
+    ArrayLiteral2D(Vec<Vec<Expr>>),    // 2D array literal [1, 2][3, 4]
     Command {
         name: String,
         args: Vec<Expr>,
@@ -606,20 +609,87 @@ impl Parser {
             let name = self.previous().lexeme.clone();
             return Ok(Expr::VariableRef(name));
         }
-        
+
         if self.match_token(TokenType::Number) {
             let value = self.previous().lexeme.parse::<i64>().unwrap();
             return Ok(Expr::NumberLiteral(value));
         }
-        
+
+        if self.match_token(TokenType::Float) {
+            let value = self.previous().lexeme.parse::<f64>().unwrap();
+            return Ok(Expr::FloatLiteral(value));
+        }
+
+        if self.match_token(TokenType::Hex) {
+            // Parse hex literals (0xABC) into integer literals
+            let hex_str = self.previous().lexeme.trim_start_matches("0x").trim_start_matches("0X");
+            let value = i64::from_str_radix(hex_str, 16).unwrap_or(0);
+            return Ok(Expr::NumberLiteral(value));
+        }
+
+        if self.match_token(TokenType::Binary) {
+            // Parse binary literals (0b101) into integer literals
+            let bin_str = self.previous().lexeme.trim_start_matches("0b").trim_start_matches("0B");
+            let value = i64::from_str_radix(bin_str, 2).unwrap_or(0);
+            return Ok(Expr::NumberLiteral(value));
+        }
+
         if self.match_token(TokenType::Text) {
             let value = self.previous().lexeme.clone();
             return Ok(Expr::TextLiteral(value));
         }
-        
+
         if self.match_token(TokenType::Boolean) {
             let value = self.previous().lexeme.clone() == "true";
             return Ok(Expr::BooleanLiteral(value));
+        }
+
+        if self.match_token(TokenType::LeftBracket) {
+            // Parse array literal [1, 2, 3, 4]
+            let mut elements = Vec::new();
+
+            // Handle empty array
+            if !self.check(TokenType::RightBracket) {
+                // Parse first element
+                elements.push(self.expression()?);
+
+                // Parse rest of elements with comma separators
+                while self.match_token(TokenType::Comma) {
+                    elements.push(self.expression()?);
+                }
+            }
+
+            // Consume the closing bracket
+            self.consume(TokenType::RightBracket, "Expect ']' after array elements")?;
+
+            // Check for 2D array syntax (another set of brackets immediately following)
+            if self.check(TokenType::LeftBracket) {
+                let mut rows = Vec::new();
+                rows.push(elements);
+
+                // Keep parsing additional rows as long as we see more brackets
+                while self.match_token(TokenType::LeftBracket) {
+                    let mut row = Vec::new();
+
+                    // Parse the elements of this row
+                    if !self.check(TokenType::RightBracket) {
+                        row.push(self.expression()?);
+
+                        while self.match_token(TokenType::Comma) {
+                            row.push(self.expression()?);
+                        }
+                    }
+
+                    // Consume the closing bracket for this row
+                    self.consume(TokenType::RightBracket, "Expect ']' after array row")?;
+
+                    rows.push(row);
+                }
+
+                return Ok(Expr::ArrayLiteral2D(rows));
+            }
+
+            return Ok(Expr::ArrayLiteral(elements));
         }
         
         if self.match_token(TokenType::LeftParen) {

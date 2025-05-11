@@ -3,7 +3,10 @@ pub enum TokenType {
     // Keywords
     Register,        // variable declaration with ':'
     Command,         // commands starting with '-'
-    Number,          // numeric literal
+    Number,          // integer literal
+    Float,           // floating point literal
+    Hex,             // hexadecimal literal
+    Binary,          // binary literal
     Ascii,           // ascii code
     Text,            // string literal
     Variable,        // variable reference with '$'
@@ -133,8 +136,8 @@ impl Lexer {
             },
             '$' => self.variable(),
             '\'' => self.string()?,
-            '@' => {
-                if self.match_char('@') {
+            '-' => {
+                if self.match_char('-') {
                     // Comment
                     while self.peek() != '\n' && !self.is_at_end() {
                         self.advance();
@@ -142,12 +145,9 @@ impl Lexer {
                     let comment = self.source[self.start..self.current].iter().collect();
                     self.tokens.push(Token::new(TokenType::Comment, comment, self.line));
                 } else {
-                    return Err(format!("Unexpected character '@' at line {}", self.line));
+                    // Just handle as minus operator
+                    self.tokens.push(Token::new(TokenType::Minus, "-".to_string(), self.line));
                 }
-            },
-            '-' => {
-                // Just handle as minus operator
-                self.tokens.push(Token::new(TokenType::Minus, "-".to_string(), self.line));
             },
             '+' => self.tokens.push(Token::new(TokenType::Plus, "+".to_string(), self.line)),
             '*' => self.tokens.push(Token::new(TokenType::Star, "*".to_string(), self.line)),
@@ -231,18 +231,77 @@ impl Lexer {
             "for" => self.tokens.push(Token::new(TokenType::For, text, self.line)),
             "break" => self.tokens.push(Token::new(TokenType::Break, text, self.line)),
             "continue" => self.tokens.push(Token::new(TokenType::Continue, text, self.line)),
-            "print" | "text" | "number" | "bool" | "asc" => self.tokens.push(Token::new(TokenType::Command, text, self.line)),
+            "print" | "text" | "number" | "bool" | "asc" | "fp" | "hex" | "bin" | "array" => self.tokens.push(Token::new(TokenType::Command, text, self.line)),
             _ => self.tokens.push(Token::new(TokenType::Register, text, self.line)),
         }
     }
     
     fn number(&mut self) {
+        // Check for hex format
+        if self.peek() == '0' && (self.peek_next() == 'x' || self.peek_next() == 'X') {
+            // Consume '0x' or '0X'
+            self.advance(); // '0'
+            self.advance(); // 'x' or 'X'
+
+            // Parse hex digits
+            while self.peek().is_digit(16) || ('a'..='f').contains(&self.peek()) || ('A'..='F').contains(&self.peek()) {
+                self.advance();
+            }
+
+            let value: String = self.source[self.start..self.current].iter().collect();
+            self.tokens.push(Token::new(TokenType::Hex, value, self.line));
+            return;
+        }
+
+        // Check for binary format
+        if self.peek() == '0' && (self.peek_next() == 'b' || self.peek_next() == 'B') {
+            // Consume '0b' or '0B'
+            self.advance(); // '0'
+            self.advance(); // 'b' or 'B'
+
+            // Parse binary digits
+            while self.peek() == '0' || self.peek() == '1' {
+                self.advance();
+            }
+
+            let value: String = self.source[self.start..self.current].iter().collect();
+            self.tokens.push(Token::new(TokenType::Binary, value, self.line));
+            return;
+        }
+
+        // Parse integer part
         while self.peek().is_digit(10) && !self.is_at_end() {
             self.advance();
         }
-        
+
+        // Look for a decimal point followed by a number
+        let is_float = if self.peek() == '.' && self.peek_next().is_digit(10) {
+            self.advance(); // Consume the '.'
+
+            // Parse decimal part
+            while self.peek().is_digit(10) && !self.is_at_end() {
+                self.advance();
+            }
+
+            true
+        } else {
+            false
+        };
+
         let value: String = self.source[self.start..self.current].iter().collect();
-        self.tokens.push(Token::new(TokenType::Number, value, self.line));
+
+        if is_float {
+            self.tokens.push(Token::new(TokenType::Float, value, self.line));
+        } else {
+            self.tokens.push(Token::new(TokenType::Number, value, self.line));
+        }
+    }
+
+    fn peek_next(&self) -> char {
+        if self.current + 1 >= self.source.len() {
+            return '\0';
+        }
+        self.source[self.current + 1]
     }
     
     fn string(&mut self) -> Result<(), String> {

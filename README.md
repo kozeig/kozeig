@@ -81,11 +81,15 @@ Lüt is still in early development and has several known issues and limitations:
 - Memory management for strings in compiled programs may cause issues in complex cases
 - Limited error reporting and debugging capabilities
 - String concatenation is not yet implemented
-- No support for complex data structures like arrays or maps (COMING SOON THOUGH!)
+- Support for arrays with 1D and 2D implementations
+- No support for maps or other complex data structures (COMING SOON THOUGH!)
 - Limited to no standard library and built-in functions (COMING SOON THOUGH!)
 - Type checking is minimal, which can lead to unexpected behavior in some cases
 
 Recent improvements:
+- Array support with 1D and 2D arrays, including array literals with the [1, 2, 3] syntax
+- Floating point, hexadecimal, and binary number support
+- Changed comment syntax from @@ to -- for better keyboard compatibility
 - Unified syntax with consistent use of curly braces for all code blocks
 - Logical operators (AND, OR, NOT) are fully implemented
 - Arithmetic operations work correctly with proper type handling
@@ -101,7 +105,7 @@ If you encounter issues, please file a bug report so the community can investiga
 ### Hello World
 
 ```lut
-@@ Hello World in Lut
+-- Hello World in Lut
 greeting : { text 'Hello, World!' }
 print { $greeting }
 ```
@@ -131,7 +135,7 @@ The debug mode is particularly useful for language development and understanding
 
 Lut has a simple, consistent syntax that's easy to learn:
 
-- **Comments** start with `@@`
+- **Comments** start with `--`
 - **Variables** are defined with `name : { type value }`
 - **Commands** use a name followed by arguments in curly braces: `command { args }`
 - **Variable references** use a dollar sign `$variableName`
@@ -139,8 +143,10 @@ Lut has a simple, consistent syntax that's easy to learn:
 ### Basic Data Types
 
 - **Numbers**: `age : { number 42 }`
+- **Floating Point**: `pi : { fp 3.14159 }`
 - **Text**: `name : { text 'John Doe' }`
 - **Booleans**: `isActive : true` or `isValid : { bool 1 }`
+- **Arrays**: `myArray : { array [1, 2, 3, 4, 5] }` or `matrix : { array [1, 2][3, 4] }`
 
 ### Arithmetic Operations
 
@@ -178,6 +184,8 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 - ✅ **Ternary Expressions**: Conditional expressions with the `?:` operator
 - ✅ **Loop Structures**: While and for loops with proper variable updating
 - ✅ **Loop Control Flow**: Support for break and continue statements
+- ✅ **Arrays**: 1D and 2D array support with array literals and access functions
+- ✅ **Numeric Types**: Integer, floating-point, hexadecimal, and binary number support
 
 ### In Progress
 - **Type System Improvements**: Better type handling and conversion
@@ -186,10 +194,11 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 
 ### Future
 - **Improved Error Messages**: Better diagnostics and debugging
-- **More Data Types**: Lists, maps, and user-defined types
-- **Advanced Control Flow**: Loops and more complex conditionals
+- **More Data Types**: Maps and user-defined types
+- **Advanced Control Flow**: Switch statements and more complex conditionals
 - **Functions & Modules**: Code organization
 - **Standard Library**: Common utilities
+- **Array Operations**: More advanced array functions like map, filter, and reduce
 
 ## Contributing
 

@@ -1,6 +1,25 @@
 # Lüt Language Changelog
 
-## Version 0.3.0 - Loop Improvements & Bug Fixes (Current)
+## Version 0.4.0 - New Data Types & Array Support (Current)
+
+### New Features
+* **Arrays**: Added comprehensive array support with 1D and 2D arrays
+  * Array literal syntax: `myArray : { array [1, 2, 3, 4, 5] }`
+  * 2D array syntax: `matrix : { array [1, 2, 3][4, 5, 6][7, 8, 9] }`
+  * Array access: `{ get $myArray, 0 }` and `{ get2d $matrix, 1, 2 }`
+* **Floating Point Numbers**: Added support for floating point numbers with the `fp` type
+* **Hexadecimal Numbers**: Added support for hexadecimal numbers with the `hex` type
+* **Binary Numbers**: Added support for binary numbers with the `bin` type
+* **Comment Syntax**: Changed comment syntax from `@@` to `--` for better keyboard compatibility
+
+### Implementation Details
+* **Array Handling**: Implemented array literals and 2D arrays in the parser and interpreter
+* **Number Type System**: Enhanced the type system to handle different number formats
+* **Parser Updates**: Updated parser to recognize new data types and array syntax
+* **Documentation**: Updated documentation to reflect new data types and syntax changes
+* **Example File**: Added `arrays.lut` to demonstrate array usage
+
+## Version 0.3.0 - Loop Improvements & Bug Fixes
 
 ### Fixes
 * **Loop Variable Updates**: Fixed a critical issue in the compiler where variable updates inside loops weren't properly applied in compiled programs

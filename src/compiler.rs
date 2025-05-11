@@ -19,8 +19,11 @@ use inkwell::targets::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum VariableType {
     Integer,
+    Float,
     String,
     Boolean,
+    Array,
+    Array2D,
 }
 
 // LLVM Code generator
@@ -579,6 +582,12 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     fn compile_expression(&mut self, expr: Expr) -> Result<BasicValueEnum<'ctx>, String> {
         match expr {
+            Expr::FloatLiteral(value) => {
+                // Currently we don't have proper float support in the LLVM compiler
+                // So we convert it to an integer value for now
+                let int_value = self.i64_type.const_int(value as u64, true);
+                Ok(int_value.into())
+            },
             Expr::Ternary { condition, then_branch, else_branch } => {
                 // Compile the condition
                 let condition_val = self.compile_expression(*condition)?;
@@ -656,13 +665,19 @@ impl<'ctx> LLVMCompiler<'ctx> {
 
                         // Use the variable_types map to determine how to load the value
                         match self.variable_types.get(&var_name) {
-                            Some(VariableType::Integer) | Some(VariableType::Boolean) => {
-                                // Load as integer value
+                            Some(VariableType::Integer) | Some(VariableType::Boolean) | Some(VariableType::Float) => {
+                                // Load as integer value (float is treated as integer for now)
                                 let int_load = self.builder.build_load(self.i64_type, ptr_val, &format!("{}_int", var_name)).unwrap();
                                 Ok(int_load)
                             },
                             Some(VariableType::String) => {
                                 // Load as pointer value
+                                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                                let ptr_load = self.builder.build_load(ptr_type, ptr_val, &format!("{}_ptr", var_name)).unwrap();
+                                Ok(ptr_load)
+                            },
+                            Some(VariableType::Array) | Some(VariableType::Array2D) => {
+                                // For now, treat arrays as pointers
                                 let ptr_type = self.context.ptr_type(AddressSpace::default());
                                 let ptr_load = self.builder.build_load(ptr_type, ptr_val, &format!("{}_ptr", var_name)).unwrap();
                                 Ok(ptr_load)
@@ -1011,8 +1026,174 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     _ => Err(format!("Binary operator not yet implemented: {:?}", operator.token_type))
                 }
             },
+            Expr::ArrayLiteral(elements) => {
+                // Create a string representation of the array for the compiled output
+                let mut array_str = String::from("[");
+
+                // Add array elements as a comma-separated list with placeholders
+                for (i, _) in elements.iter().enumerate() {
+                    if i > 0 {
+                        array_str.push_str(", ");
+                    }
+
+                    // Use a placeholder for each element
+                    array_str.push_str("?");
+                }
+
+                array_str.push_str("]");
+
+                // Create a string literal for the array representation
+                let string_ptr = self.create_heap_string(&array_str);
+                Ok(string_ptr.into())
+            },
+            Expr::ArrayLiteral2D(rows) => {
+                // Create a string representation of the 2D array for the compiled output
+                let mut array_str = String::from("[");
+
+                // Add array rows
+                for (i, row) in rows.iter().enumerate() {
+                    if i > 0 {
+                        array_str.push_str("; ");
+                    }
+
+                    array_str.push_str("[");
+
+                    // Add row elements
+                    for (j, _) in row.iter().enumerate() {
+                        if j > 0 {
+                            array_str.push_str(", ");
+                        }
+
+                        // Use a placeholder for each element
+                        array_str.push_str("?");
+                    }
+
+                    array_str.push_str("]");
+                }
+
+                array_str.push_str("]");
+
+                // Create a string literal for the array representation
+                let string_ptr = self.create_heap_string(&array_str);
+                Ok(string_ptr.into())
+            },
             Expr::Command { name, args } => {
                 match name.as_str() {
+                    "fp" | "-fp" => {
+                        if args.len() != 1 {
+                            return Err("Floating point command expects one argument".to_string());
+                        }
+
+                        // Compile the argument expression
+                        let value = self.compile_expression(args[0].clone())?;
+
+                        // For now, we just use integers to represent floating point values
+                        match value {
+                            BasicValueEnum::IntValue(int_val) => {
+                                // Already an integer
+                                Ok(int_val.into())
+                            },
+                            BasicValueEnum::PointerValue(ptr_val) => {
+                                // Try to convert string to integer using atoll
+                                let result = self.builder.build_call(
+                                    self.atoll_func,
+                                    &[ptr_val.into()],
+                                    "atoll_call"
+                                ).unwrap();
+
+                                Ok(result.try_as_basic_value().left().unwrap())
+                            },
+                            _ => Err("Cannot convert value to floating point".to_string())
+                        }
+                    },
+                    "array" | "-array" => {
+                        // Note: For the LLVM compiler, we're implementing basic array support
+                        // that will at least display the array description in compiled output
+
+                        if args.len() == 1 {
+                            match &args[0] {
+                                Expr::ArrayLiteral(elements) => {
+                                    // Create a string representation of the array
+                                    let mut array_str = String::from("[");
+
+                                    // Add array elements as a comma-separated list
+                                    for (i, _element) in elements.iter().enumerate() {
+                                        if i > 0 {
+                                            array_str.push_str(", ");
+                                        }
+
+                                        // Add placeholder for element - we could evaluate here
+                                        // for a more complete implementation
+                                        array_str.push_str("?");
+                                    }
+
+                                    array_str.push_str("]");
+
+                                    // Create a string literal for the array representation
+                                    let string_ptr = self.create_heap_string(&array_str);
+                                    return Ok(string_ptr.into());
+                                },
+                                Expr::ArrayLiteral2D(rows) => {
+                                    // Create a string representation of the 2D array
+                                    let mut array_str = String::from("[");
+
+                                    // Add array rows
+                                    for (i, row) in rows.iter().enumerate() {
+                                        if i > 0 {
+                                            array_str.push_str("; ");
+                                        }
+
+                                        array_str.push_str("[");
+
+                                        // Add row elements
+                                        for (j, _) in row.iter().enumerate() {
+                                            if j > 0 {
+                                                array_str.push_str(", ");
+                                            }
+
+                                            // Add placeholder for element
+                                            array_str.push_str("?");
+                                        }
+
+                                        array_str.push_str("]");
+                                    }
+
+                                    array_str.push_str("]");
+
+                                    // Create a string literal for the array representation
+                                    let string_ptr = self.create_heap_string(&array_str);
+                                    return Ok(string_ptr.into());
+                                },
+                                _ => {
+                                    // Try to evaluate the argument
+                                    return self.compile_expression(args[0].clone());
+                                }
+                            }
+                        }
+
+                        // If we get here, create a generic array placeholder
+                        let array_str = "[array]";
+                        let string_ptr = self.create_heap_string(array_str);
+                        Ok(string_ptr.into())
+                    },
+                    "hex" | "-hex" => {
+                        if args.len() != 1 {
+                            return Err("Hex command expects one argument".to_string());
+                        }
+
+                        // Compile the argument expression - for now we just treat it as a number
+                        let value = self.compile_expression(args[0].clone())?;
+                        Ok(value)
+                    },
+                    "bin" | "-bin" => {
+                        if args.len() != 1 {
+                            return Err("Binary command expects one argument".to_string());
+                        }
+
+                        // Compile the argument expression - for now we just treat it as a number
+                        let value = self.compile_expression(args[0].clone())?;
+                        Ok(value)
+                    },
                     "text" | "-text" => {
                         if args.len() != 1 {
                             return Err("Text command expects one argument".to_string());

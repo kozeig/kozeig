@@ -8,10 +8,10 @@ Lüt is a simple, interpreted and compiled programming language with a focus on 
 
 ### Comments
 
-Comments in Lüt start with `@@` and continue until the end of the line:
+Comments in Lüt start with `--` and continue until the end of the line:
 
 ```lut
-@@ This is a comment
+-- This is a comment
 ```
 
 ### Variables
@@ -39,13 +39,26 @@ Lüt supports the following data types:
    negative : { number -10 }
    ```
 
-2. **Text** - String values, enclosed in single quotes
+2. **Floating Point** - Decimal numbers
+   ```
+   pi : { fp 3.14159 }
+   temperature : { fp 98.6 }
+   ```
+
+3. **Text** - String values, enclosed in single quotes
    ```
    name : { text 'John' }
    message : { text 'Hello, world!' }
    ```
 
-3. **Boolean** - True/false values
+4. **Arrays** - Collection of values
+   ```
+   myArray : { array [1, 2, 3, 4, 5] }
+   matrix : { array [1, 2, 3][4, 5, 6][7, 8, 9] }  -- 2D array
+   mixedArray : { array [1, "text", true, 3.14] }  -- Different types allowed
+   ```
+
+5. **Boolean** - True/false values
 
    Booleans can be created in several ways:
 
@@ -130,7 +143,23 @@ numericValue : { number $someValue }
 Convert a number to its ASCII character representation:
 
 ```
-letter : { asc 65 }  @@ Converts to 'A'
+letter : { asc 65 }  -- Converts to 'A'
+```
+
+#### Hexadecimal Conversion
+
+Convert a hexadecimal string to a number:
+
+```
+value : { hex '0xFF' }  -- Converts to 255
+```
+
+#### Binary Conversion
+
+Convert a binary string to a number:
+
+```
+value : { bin '0b1010' }  -- Converts to 10
 ```
 
 ### Arithmetic Operations
@@ -165,6 +194,40 @@ quotient : $a / $b
 
 ```
 remainder : $a % $b
+```
+
+### Array Operations
+
+Lüt provides several commands for working with arrays:
+
+#### Array Length
+
+Get the number of elements in a 1D array or the number of rows in a 2D array:
+
+```
+len : { length $myArray }
+```
+
+#### 2D Array Width
+
+Get the number of columns in a 2D array:
+
+```
+width : { width $matrix }
+```
+
+#### Array Element Access
+
+Access elements in a 1D array (0-based indexing):
+
+```
+firstElement : { get $myArray, 0 }
+```
+
+Access elements in a 2D array (0-based indexing for rows and columns):
+
+```
+element : { get2d $matrix, 1, 2 }  -- Gets the element at row 1, column 2
 ```
 
 #### Compound Operations
