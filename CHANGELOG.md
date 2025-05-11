@@ -3,10 +3,18 @@
 ## Version 0.4.0 - New Data Types & Array Support (Current)
 
 ### New Features
-* **Arrays**: Added comprehensive array support with 1D and 2D arrays
+* **Arrays**: Added basic array support with 1D and 2D arrays
   * Array literal syntax: `myArray : { array [1, 2, 3, 4, 5] }`
   * 2D array syntax: `matrix : { array [1, 2, 3][4, 5, 6][7, 8, 9] }`
-  * Array access: `{ get $myArray, 0 }` and `{ get2d $matrix, 1, 2 }`
+  * Array display: Arrays can be displayed directly in print statements
+  * **Current Limitations**:
+    * Advanced array operations (matrix math, transpose, determinant) are only partially implemented in the interpreter
+    * Array element access is limited
+    * Compiled code outputs a string representation of arrays rather than full array functionality
+* **One-Liner Support**: Added support for statement separation using `;;`
+  * Write multiple statements on a single line: `x : 10 ;; y : 20 ;; print { $x + $y }`
+  * Works at top-level and inside control blocks (if, for, while)
+  * Enables compact code patterns and efficient programming
 * **Floating Point Numbers**: Added support for floating point numbers with the `fp` type
 * **Hexadecimal Numbers**: Added support for hexadecimal numbers with the `hex` type
 * **Binary Numbers**: Added support for binary numbers with the `bin` type
@@ -14,10 +22,12 @@
 
 ### Implementation Details
 * **Array Handling**: Implemented array literals and 2D arrays in the parser and interpreter
+* **Statement Separator**: Added a dedicated `StatementSeparator` token type for `;;` to allow one-liners
+* **Block Handling**: Updated parser to recognize statement separators in control blocks
 * **Number Type System**: Enhanced the type system to handle different number formats
 * **Parser Updates**: Updated parser to recognize new data types and array syntax
 * **Documentation**: Updated documentation to reflect new data types and syntax changes
-* **Example File**: Added `arrays.lut` to demonstrate array usage
+* **Example Files**: Added `arrays.lut` and one-liner examples to demonstrate new features
 
 ## Version 0.3.0 - Loop Improvements & Bug Fixes
 

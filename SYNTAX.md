@@ -246,20 +246,39 @@ You can use parentheses to control the order of operations:
 result : ($a + $b) * $c
 ```
 
-## Line Separators
+## Statement Separators
 
-Statements in Lüt are typically separated by newlines. You can also use double semicolons (`;;`) to separate statements on the same line:
+Statements in Lüt are typically separated by newlines. You can also use double semicolons (`;;`) to separate statements on the same line, which allows for compact one-liners:
 
 ```lut
+-- Multiple statements on a single line
 name : { text 'John' } ;; age : { number 30 } ;; print { $name, ' is ', $age, ' years old' }
 ```
+
+The statement separator `;;` works at both the top level of your program and inside control block structures like if statements and loops:
+
+```lut
+-- Statement separators inside control blocks
+for { i : 0, $i + 1, $i < 3 } [
+    value : $i * 2 ;; print { 'i =', $i, 'value =', $value }
+]
+
+-- Statement separators in if/else blocks
+if { $score >= 90 } [
+    grade : 'A' ;; message : 'Excellent!'
+] else [
+    grade : 'B' ;; message : 'Good job!'
+]
+```
+
+This feature allows for more compact code while maintaining readability.
 
 ## Example Programs
 
 ### Hello World
 
 ```lut
-@@ Simple Hello World program
+-- Simple Hello World program
 greeting : { text 'Hello, World!' }
 print { $greeting }
 ```
@@ -267,59 +286,59 @@ print { $greeting }
 ### Basic Arithmetic
 
 ```lut
-@@ Simple arithmetic example
+-- Simple arithmetic example
 a : { number 5 }
 b : { number 10 }
 
-@@ Addition
+-- Addition
 sum : $a + $b
 print { 'Sum: ', $sum }
 
-@@ Subtraction
+-- Subtraction
 difference : $b - $a
 print { 'Difference: ', $difference }
 
-@@ Multiplication
+-- Multiplication
 product : $a * $b
 print { 'Product: ', $product }
 
-@@ Division (includes runtime division-by-zero protection)
+-- Division (includes runtime division-by-zero protection)
 quotient : $b / $a
 print { 'Quotient: ', $quotient }
 
-@@ Modulo (includes runtime modulo-by-zero protection)
+-- Modulo (includes runtime modulo-by-zero protection)
 remainder : $b % $a
 print { 'Remainder: ', $remainder }
 
-@@ Compound operations with operator precedence
+-- Compound operations with operator precedence
 compound1 : $a + $b * 2
-print { 'Compound (a + b * 2): ', $compound1 }  @@ Multiplication happens first
+print { 'Compound (a + b * 2): ', $compound1 }  -- Multiplication happens first
 
-@@ Using parentheses to override precedence
+-- Using parentheses to override precedence
 compound2 : ($a + $b) * 2
 print { 'Compound ((a + b) * 2): ', $compound2 }
 
-@@ Conditional logic with modern syntax
-if $a < $b {
+-- Conditional logic with current syntax
+if { $a < $b } [
     print { '$a is less than $b' }
 
-    if $a * 2 > $b {
+    if { $a * 2 > $b } [
         print { 'But $a * 2 is greater than $b' }
-    }
-}
+    ]
+]
 ```
 
 ### ASCII Conversion
 
 ```lut
-@@ ASCII conversion example
+-- ASCII conversion example
 h : { asc 72 }
 e : { asc 101 }
 l : { asc 108 }
 l2 : { asc 108 }
 o : { asc 111 }
 
-print { $h, $e, $l, $l2, $o }  @@ Prints "hello"
+print { $h, $e, $l, $l2, $o }  -- Prints "hello"
 ```
 
 ## Identifiers and Naming Conventions

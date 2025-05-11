@@ -80,23 +80,33 @@ Lüt is still in early development and has several known issues and limitations:
 
 - Memory management for strings in compiled programs may cause issues in complex cases
 - Limited error reporting and debugging capabilities
-- String concatenation is not yet implemented
-- Support for arrays with 1D and 2D implementations
+- String concatenation is limited for complex cases
+
+**Arrays - Current Implementation Status:**
+- Basic 1D and 2D array creation and display works correctly: `myArray : { array [1, 2, 3, 4, 5] }`
+- Mixed type arrays are supported: `mixed : { array [1, 'text', true, 3.14] }`
+- Arrays display properly when referenced in print statements
+- **Limitations:**
+  - Matrix operations (transpose, determinant) are partially implemented in the interpreter but not fully tested
+  - Array element access is limited
+  - Compiled code for arrays returns a simplified string representation rather than full array functionality
+
+**Other Known Limitations:**
 - No support for maps or other complex data structures (COMING SOON THOUGH!)
 - Limited to no standard library and built-in functions (COMING SOON THOUGH!)
 - Type checking is minimal, which can lead to unexpected behavior in some cases
 
-Recent improvements:
-- Array support with 1D and 2D arrays, including array literals with the [1, 2, 3] syntax
-- Floating point, hexadecimal, and binary number support
-- Changed comment syntax from @@ to -- for better keyboard compatibility
-- Unified syntax with consistent use of curly braces for all code blocks
-- Logical operators (AND, OR, NOT) are fully implemented
-- Arithmetic operations work correctly with proper type handling
-- Control flow with if/else statements is fully functional
-- Boolean expressions, comparisons, and ternary expressions are supported
-- Fixed loop variable updates in compiled binaries
-- Proper evaluation of break and continue statements in loops
+**What Works Well:**
+- ✅ **Array Creation and Display**: 1D and 2D arrays with the new `[1, 2, 3]` syntax work perfectly
+- ✅ **One-Liners**: Statement separation with `;;` works in all contexts including control blocks
+- ✅ **Data Types**: All numeric types (integer, floating point, hex, binary) work as expected
+- ✅ **Comments**: The new `--` comment syntax is fully implemented and compatible
+- ✅ **Syntax**: Unified syntax with consistent curly braces is fully functional
+- ✅ **Logic**: Logical operators (AND, OR, NOT) work perfectly
+- ✅ **Arithmetic**: All basic operations work correctly with proper type handling
+- ✅ **Control Flow**: If/else statements, loops, and break/continue are fully functional
+- ✅ **Conditionals**: Boolean expressions, comparisons, and ternary expressions all work reliably
+- ✅ **Compiled Code**: Loop variables and control flow work correctly in compiled binaries
 
 If you encounter issues, please file a bug report so the community can investigate and fix the problem.
 
@@ -139,6 +149,7 @@ Lut has a simple, consistent syntax that's easy to learn:
 - **Variables** are defined with `name : { type value }`
 - **Commands** use a name followed by arguments in curly braces: `command { args }`
 - **Variable references** use a dollar sign `$variableName`
+- **Statement separation** uses double semicolons `;;` for one-liners
 
 ### Basic Data Types
 
@@ -164,10 +175,22 @@ print { 'Sum: ', $sum }
 print { 'Product: ', $product }
 ```
 
+### One-Liners with Statement Separators
+
+```lut
+-- Multiple statements on one line using ;; separators
+x : 10 ;; y : 20 ;; print { 'Sum: ', $x + $y }
+
+-- Works inside control blocks too
+for { i : 0, $i + 1, $i < 3 } [
+    value : $i * 2 ;; print { 'i =', $i, 'value =', $value }
+]
+```
+
 ### ASCII Conversion
 
 ```lut
-char : { asc 65 }  @@ Converts ASCII code 65 to 'A'
+char : { asc 65 }  -- Converts ASCII code 65 to 'A'
 print { $char }
 ```
 
@@ -184,8 +207,9 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 - ✅ **Ternary Expressions**: Conditional expressions with the `?:` operator
 - ✅ **Loop Structures**: While and for loops with proper variable updating
 - ✅ **Loop Control Flow**: Support for break and continue statements
-- ✅ **Arrays**: 1D and 2D array support with array literals and access functions
+- ✅ **Arrays**: Basic 1D and 2D array support with array literals and display capabilities
 - ✅ **Numeric Types**: Integer, floating-point, hexadecimal, and binary number support
+- ✅ **One-Liners**: Statement separation with `;;` allows compact code patterns
 
 ### In Progress
 - **Type System Improvements**: Better type handling and conversion
@@ -198,7 +222,10 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 - **Advanced Control Flow**: Switch statements and more complex conditionals
 - **Functions & Modules**: Code organization
 - **Standard Library**: Common utilities
-- **Array Operations**: More advanced array functions like map, filter, and reduce
+- **Array Improvements**:
+  - Complete array element access
+  - Matrix operations like transpose and determinant
+  - Advanced array functions like map, filter, and reduce
 
 ## Contributing
 

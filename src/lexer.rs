@@ -23,6 +23,7 @@ pub enum TokenType {
     DoubleColon,     // '::'
     Comma,           // ','
     Semicolon,       // ';'
+    StatementSeparator, // ';;'
     QuestionMark,    // '?'
     LeftBracket,     // '['
     RightBracket,    // ']'
@@ -129,8 +130,10 @@ impl Lexer {
             ';' => {
                 // Handle semicolons - check for double semicolon (;;)
                 if self.match_char(';') {
-                    self.tokens.push(Token::new(TokenType::Semicolon, ";;".to_string(), self.line));
+                    // Double semicolon is a statement separator
+                    self.tokens.push(Token::new(TokenType::StatementSeparator, ";;".to_string(), self.line));
                 } else {
+                    // Single semicolon
                     self.tokens.push(Token::new(TokenType::Semicolon, ";".to_string(), self.line));
                 }
             },

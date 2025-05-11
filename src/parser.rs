@@ -82,21 +82,21 @@ impl Parser {
         let mut statements = Vec::new();
         
         while !self.is_at_end() {
-            if self.match_token(TokenType::Newline) || self.match_token(TokenType::Semicolon) {
+            if self.match_token(TokenType::Newline) || self.match_token(TokenType::Semicolon) || self.match_token(TokenType::StatementSeparator) {
                 continue;
             }
-            
+
             if self.match_token(TokenType::Comment) {
                 let comment = self.previous().lexeme.clone();
                 statements.push(Stmt::Comment(comment));
                 continue;
             }
-            
+
             let stmt = self.declaration()?;
             statements.push(stmt);
-            
-            // Skip any newlines or semicolons
-            while self.match_token(TokenType::Newline) || self.match_token(TokenType::Semicolon) {}
+
+            // Skip any newlines, semicolons or statement separators
+            while self.match_token(TokenType::Newline) || self.match_token(TokenType::Semicolon) || self.match_token(TokenType::StatementSeparator) {}
         }
         
         Ok(statements)
@@ -227,8 +227,8 @@ impl Parser {
 
         // Continue until we hit a right bracket or EOF
         while !self.check(TokenType::RightBracket) && !self.is_at_end() {
-            // Skip newlines
-            if self.match_token(TokenType::Newline) {
+            // Skip newlines or statement separators
+            if self.match_token(TokenType::Newline) || self.match_token(TokenType::StatementSeparator) {
                 continue;
             }
 
@@ -242,6 +242,9 @@ impl Parser {
             // Process the statement
             let stmt = self.declaration()?;
             then_branch.push(stmt);
+
+            // Skip any statement separators after a statement
+            while self.match_token(TokenType::StatementSeparator) {}
         }
 
         // Consume the closing bracket
@@ -259,8 +262,8 @@ impl Parser {
 
             // Continue until we hit a right bracket or EOF
             while !self.check(TokenType::RightBracket) && !self.is_at_end() {
-                // Skip newlines
-                if self.match_token(TokenType::Newline) {
+                // Skip newlines or statement separators
+                if self.match_token(TokenType::Newline) || self.match_token(TokenType::StatementSeparator) {
                     continue;
                 }
 
@@ -274,6 +277,9 @@ impl Parser {
                 // Process the statement
                 let stmt = self.declaration()?;
                 else_statements.push(stmt);
+
+                // Skip any statement separators after a statement
+                while self.match_token(TokenType::StatementSeparator) {}
             }
 
             // Consume the closing bracket
@@ -313,8 +319,8 @@ impl Parser {
 
         // Continue until we hit a right bracket or EOF
         while !self.check(TokenType::RightBracket) && !self.is_at_end() {
-            // Skip newlines
-            if self.match_token(TokenType::Newline) {
+            // Skip newlines or statement separators
+            if self.match_token(TokenType::Newline) || self.match_token(TokenType::StatementSeparator) {
                 continue;
             }
 
@@ -328,6 +334,9 @@ impl Parser {
             // Process the statement
             let stmt = self.declaration()?;
             body.push(stmt);
+
+            // Skip any statement separators after a statement
+            while self.match_token(TokenType::StatementSeparator) {}
         }
 
         // Consume the closing bracket
@@ -392,8 +401,8 @@ impl Parser {
 
         // Continue until we hit a right bracket or EOF
         while !self.check(TokenType::RightBracket) && !self.is_at_end() {
-            // Skip newlines
-            if self.match_token(TokenType::Newline) {
+            // Skip newlines or statement separators
+            if self.match_token(TokenType::Newline) || self.match_token(TokenType::StatementSeparator) {
                 continue;
             }
 
@@ -407,6 +416,9 @@ impl Parser {
             // Process the statement
             let stmt = self.declaration()?;
             body.push(stmt);
+
+            // Skip any statement separators after a statement
+            while self.match_token(TokenType::StatementSeparator) {}
         }
 
         // Consume the closing bracket
