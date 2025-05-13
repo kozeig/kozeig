@@ -1,6 +1,28 @@
 # Lüt Language Changelog
 
-## Version 0.4.0 - New Data Types & Array Support (Current)
+## Version 0.5.0 - Function Support (Current)
+
+### New Features
+* **Functions**: Added comprehensive support for functions with parameters and return values
+  * Function definition syntax: `func pub|prot name { param1 : type !, param2 : type ! } [body]`
+  * Function call syntax: `call { function_name, arg1, arg2, ... }`
+  * Variable assignment from function call: `var_name : call { function_name, args... }`
+  * **Function Features**:
+    * Parameter support with type declarations
+    * Return values via last expression in function body
+    * Public and protected visibility modifiers
+    * Support for recursive functions
+    * Function calls as expressions or statements
+
+### Implementation Details
+* **Lexer Updates**: Added new token types for function-related keywords (`func`, `pub`, `prot`, `call`)
+* **Parser Enhancements**: Implemented parsing for function definitions and function calls
+* **AST Structures**: Added `FunctionParam`, `Function` statements, and `FunctionCall` expressions
+* **Interpreter Support**: Implemented function environment handling with parameter binding and return values
+* **Compiler Support**: Added LLVM IR generation for functions and function calls
+* **Example Files**: Added function examples including recursive algorithms (factorial, fibonacci)
+
+## Version 0.4.0 - New Data Types & Array Support
 
 ### New Features
 * **Arrays**: Added basic array support with 1D and 2D arrays

@@ -6,6 +6,59 @@ Lüt is a simple, interpreted and compiled programming language with a focus on 
 
 ## Basic Syntax Elements
 
+### Functions
+
+Functions in Lüt are defined using the `func` keyword with a visibility modifier (`pub` or `prot`), followed by the function name, parameters in curly braces, and the function body in square brackets:
+
+```lut
+func pub|prot functionName { param1 : type !, param2 : type ! } [
+    -- Function body statements
+    -- The last expression is implicitly returned
+]
+```
+
+The exclamation mark (`!`) after a parameter type indicates that the parameter is uninitialized and must be provided when calling the function.
+
+Functions are called using the `call` keyword:
+
+```lut
+call { functionName, arg1, arg2 }
+```
+
+You can assign the return value of a function to a variable:
+
+```lut
+result : call { functionName, arg1, arg2 }
+```
+
+Example of a simple function definition and call:
+
+```lut
+-- Define a function to add two numbers
+func pub add { a : number !, b : number ! } [
+    $a + $b  -- Last expression is returned
+]
+
+-- Call the function and store the result
+sum : call { add, 5, 3 }
+print { 'Sum: ', $sum }  -- Outputs: Sum: 8
+```
+
+Functions can be recursive:
+
+```lut
+-- Recursive factorial function
+func pub factorial { n : number ! } [
+    if { $n <= 1 } [
+        1  -- Base case
+    ] else [
+        $n * call { factorial, $n - 1 }  -- Recursive case
+    ]
+]
+
+print { 'Factorial of 5: ', call { factorial, 5 } }  -- Outputs: Factorial of 5: 120
+```
+
 ### Comments
 
 Comments in Lüt start with `--` and continue until the end of the line:

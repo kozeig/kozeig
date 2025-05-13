@@ -17,6 +17,12 @@ pub enum TokenType {
     For,             // 'for' keyword
     Break,           // 'break' keyword
     Continue,        // 'continue' keyword
+    
+    // Function related keywords
+    Func,            // 'func' keyword for function definitions
+    Pub,             // 'pub' keyword for public functions
+    Prot,            // 'prot' keyword for protected functions 
+    Call,            // 'call' keyword for function calls
 
     // Symbols
     Colon,           // ':'
@@ -62,7 +68,7 @@ pub enum TokenType {
     EOF,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub token_type: TokenType,
     pub lexeme: String,
@@ -234,6 +240,11 @@ impl Lexer {
             "for" => self.tokens.push(Token::new(TokenType::For, text, self.line)),
             "break" => self.tokens.push(Token::new(TokenType::Break, text, self.line)),
             "continue" => self.tokens.push(Token::new(TokenType::Continue, text, self.line)),
+            // Function-related keywords
+            "func" => self.tokens.push(Token::new(TokenType::Func, text, self.line)),
+            "pub" => self.tokens.push(Token::new(TokenType::Pub, text, self.line)),
+            "prot" => self.tokens.push(Token::new(TokenType::Prot, text, self.line)),
+            "call" => self.tokens.push(Token::new(TokenType::Call, text, self.line)),
             "print" | "text" | "number" | "bool" | "asc" | "fp" | "hex" | "bin" | "array" => self.tokens.push(Token::new(TokenType::Command, text, self.line)),
             _ => self.tokens.push(Token::new(TokenType::Register, text, self.line)),
         }

@@ -11,7 +11,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: lut [build|run|jit|debug] <file>");
+        eprintln!("Usage: lut [build|run|jit|debug] <file> [-s|--silent]");
+        eprintln!("  -s, --silent   Run in silent mode with minimal output");
         process::exit(1);
     }
 
@@ -20,10 +21,13 @@ fn main() {
     match command.as_str() {
         "debug" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut debug <file>");
+                eprintln!("Usage: lut debug <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
+            
+            // Check for silent mode flag
+            let silent_mode = args.iter().any(|arg| arg == "-s" || arg == "--silent");
 
             match fs::read_to_string(file_path) {
                 Ok(source) => {
@@ -31,17 +35,21 @@ fn main() {
                     let mut lexer = lexer::Lexer::new(&source);
                     match lexer.scan_tokens() {
                         Ok(tokens) => {
-                            println!("Tokens:");
-                            for token in &tokens {
-                                println!("{:?}: {:?}", token.token_type, token.lexeme);
+                            if !silent_mode {
+                                println!("Tokens:");
+                                for token in &tokens {
+                                    println!("{:?}: {:?}", token.token_type, token.lexeme);
+                                }
                             }
 
                             let mut parser = parser::Parser::new(tokens);
                             match parser.parse() {
                                 Ok(statements) => {
-                                    println!("\nParsed AST:");
-                                    for stmt in &statements {
-                                        println!("{:#?}", stmt);
+                                    if !silent_mode {
+                                        println!("\nParsed AST:");
+                                        for stmt in &statements {
+                                            println!("{:#?}", stmt);
+                                        }
                                     }
                                 },
                                 Err(e) => {
@@ -64,15 +72,22 @@ fn main() {
         },
         "build" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut build <file>");
+                eprintln!("Usage: lut build <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
             
+            // Check for silent mode flag
+            let silent_mode = args.iter().any(|arg| arg == "-s" || arg == "--silent");
+            
             match fs::read_to_string(file_path) {
                 Ok(source) => {
-                    match compiler::compile(&source, file_path) {
-                        Ok(_) => println!("Successfully compiled {}", file_path),
+                    match compiler::compile(&source, file_path, silent_mode) {
+                        Ok(_) => {
+                            if !silent_mode {
+                                println!("Successfully compiled {}", file_path);
+                            }
+                        },
                         Err(e) => {
                             eprintln!("Compilation error: {}", e);
                             process::exit(1);
@@ -123,15 +138,18 @@ fn main() {
         }
         "jit" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut jit <file>");
+                eprintln!("Usage: lut jit <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
             
+            // Check for silent mode flag
+            let silent_mode = args.iter().any(|arg| arg == "-s" || arg == "--silent");
+            
             match fs::read_to_string(file_path) {
                 Ok(source) => {
                     // Use the LLVM JIT compiler to compile and execute
-                    match compiler::jit_compile_and_run(&source, file_path) {
+                    match compiler::jit_compile_and_run(&source, file_path, silent_mode) {
                         Ok(_) => (), // The JIT execution already happened
                         Err(e) => {
                             eprintln!("JIT compilation error: {}", e);
@@ -147,7 +165,8 @@ fn main() {
         }
         _ => {
             eprintln!("Unknown command: {}", command);
-            eprintln!("Usage: lut [build|run|jit] <file>");
+            eprintln!("Usage: lut [build|run|jit|debug] <file> [-s|--silent]");
+            eprintln!("  -s, --silent   Run in silent mode with minimal output");
             process::exit(1);
         }
     }

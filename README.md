@@ -6,8 +6,6 @@
 
 Lüt (pronounced "loot" or "lewt") is a fun, simple programming language with a clean syntax designed for readability and ease of use. It's an experimental language under active development.
 
-> 28.7% of this codebase is AI Generated; includes .md files, examples and source code for Lüt
-
 ## Project Status
 
 ⚠️
@@ -15,6 +13,9 @@ Lüt (pronounced "loot" or "lewt") is a fun, simple programming language with a 
 Lüt is currently in early development. While the core features work, you may encounter bugs and limitations. The compiler and runtime are being actively improved.
 
 **Lüt is under active development and is open to community contributions in any form!**
+
+See [Benchmarks](./BENCHMARKS.md) for more information on the current performance of the language.
+See [Changelog](./CHANGELOG.md) for a list of recent changes.
 
 ## Features
 
@@ -26,6 +27,7 @@ Lüt is currently in early development. While the core features work, you may en
 - **Beginner-Friendly**: Ideal for learning programming concepts
 - **Logical Operators**: Full support for AND, OR, and NOT operations
 - **Control Flow**: If-else statements and ternary conditional expressions
+- **Functions**: Support for defining and calling functions with parameters and return values
 
 ## Installation
 
@@ -93,10 +95,11 @@ Lüt is still in early development and has several known issues and limitations:
 
 **Other Known Limitations:**
 - No support for maps or other complex data structures (COMING SOON THOUGH!)
-- Limited to no standard library and built-in functions (COMING SOON THOUGH!)
+- Limited standard library functionality (GROWING WITH EACH RELEASE!)
 - Type checking is minimal, which can lead to unexpected behavior in some cases
 
 **What Works Well:**
+- ✅ **Functions**: Function definitions with parameters, function calls, recursive functions, and return values
 - ✅ **Array Creation and Display**: 1D and 2D arrays with the new `[1, 2, 3]` syntax work perfectly
 - ✅ **One-Liners**: Statement separation with `;;` works in all contexts including control blocks
 - ✅ **Data Types**: All numeric types (integer, floating point, hex, binary) work as expected
@@ -159,6 +162,19 @@ Lut has a simple, consistent syntax that's easy to learn:
 - **Booleans**: `isActive : true` or `isValid : { bool 1 }`
 - **Arrays**: `myArray : { array [1, 2, 3, 4, 5] }` or `matrix : { array [1, 2][3, 4] }`
 
+### Functions
+
+```lut
+-- Define a function to add two numbers
+func pub add { a : number !, b : number ! } [
+    $a + $b  -- Last expression is returned
+]
+
+-- Call the function
+result : call { add, 5, 7 }
+print { 'The sum is: ', $result }  -- Outputs: The sum is: 12
+```
+
 ### Arithmetic Operations
 
 ```lut
@@ -199,6 +215,7 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 ## Roadmap
 
 ### Completed
+- ✅ **Functions**: Definition and calling of functions with parameters and return values, including recursive functions
 - ✅ **Core Arithmetic Operations**: Addition, subtraction, multiplication, division, and modulo
 - ✅ **Basic Control Flow**: If/else conditionals and boolean operations
 - ✅ **Native Compilation**: LLVM-based compiler with JIT support
@@ -213,15 +230,15 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 
 ### In Progress
 - **Type System Improvements**: Better type handling and conversion
-- **Memory Management**: More robust heap memory management for strings
+- **Memory Management**: More robust heap memory management for strings and complex data structures
 - **Syntax Refinements**: Ongoing improvements to the language syntax
+- **Function Library**: Growing the standard function library
 
 ### Future
 - **Improved Error Messages**: Better diagnostics and debugging
 - **More Data Types**: Maps and user-defined types
 - **Advanced Control Flow**: Switch statements and more complex conditionals
-- **Functions & Modules**: Code organization
-- **Standard Library**: Common utilities
+- **Modules**: Code organization and namespaces
 - **Array Improvements**:
   - Complete array element access
   - Matrix operations like transpose and determinant

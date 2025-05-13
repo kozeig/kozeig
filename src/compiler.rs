@@ -1,9 +1,10 @@
 use crate::lexer::{Lexer, TokenType};
-use crate::parser::{Expr, Parser, Stmt};
-use std::collections::HashMap;
+use crate::parser::{Expr, FunctionParam, Parser, Stmt};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::rc::Rc;
 use inkwell::context::Context;
 use inkwell::builder::Builder;
 use inkwell::module::Module;
@@ -14,6 +15,7 @@ use inkwell::AddressSpace;
 use inkwell::targets::{
     CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine
 };
+use inkwell::Either;
 
 // Define an enum for variable types
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +26,69 @@ pub enum VariableType {
     Boolean,
     Array,
     Array2D,
+}
+
+// String interning pool for efficient string management
+struct StringPool<'ctx> {
+    // Store unique strings with reference counting
+    pool: HashSet<Rc<String>>,
+    // Map of global string constants in LLVM IR
+    global_strings: HashMap<String, PointerValue<'ctx>>,
+}
+
+impl<'ctx> StringPool<'ctx> {
+    fn new() -> Self {
+        StringPool {
+            pool: HashSet::new(),
+            global_strings: HashMap::new(),
+        }
+    }
+    
+    fn intern(&mut self, s: String) -> Rc<String> {
+        let rc_string = Rc::new(s);
+        // If the string is already in the pool, return the existing reference
+        if let Some(existing) = self.pool.get(&rc_string) {
+            Rc::clone(existing)
+        } else {
+            // Otherwise add it to the pool and return a reference
+            self.pool.insert(Rc::clone(&rc_string));
+            rc_string
+        }
+    }
+    
+    // Get or create a global string constant in LLVM IR
+    fn get_or_create_global_string(&mut self, 
+                                   string_val: &str, 
+                                   context: &'ctx Context, 
+                                   module: &Module<'ctx>, 
+                                   builder: &Builder<'ctx>) -> PointerValue<'ctx> {
+        // Check if we already have this string in the global strings cache
+        if let Some(&ptr) = self.global_strings.get(string_val) {
+            return ptr;
+        }
+        
+        // Create a new global string constant
+        let i8_type = context.i8_type();
+        let string_type = i8_type.array_type((string_val.len() + 1) as u32);
+        
+        // Create a unique name for the global string
+        let global_name = format!("str_{}", module.get_globals().count());
+        let global_string = module.add_global(string_type, None, &global_name);
+        global_string.set_constant(true);
+        global_string.set_linkage(inkwell::module::Linkage::Private);
+        global_string.set_initializer(&context.const_string(string_val.as_bytes(), true));
+        
+        // Create a pointer to the string data
+        let zero = context.i32_type().const_zero();
+        let indices = [zero, zero];
+        let ptr = unsafe {
+            builder.build_gep(i8_type, global_string.as_pointer_value(), &indices, "str_ptr").unwrap()
+        };
+        
+        // Cache and return the pointer
+        self.global_strings.insert(string_val.to_string(), ptr);
+        ptr
+    }
 }
 
 // LLVM Code generator
@@ -43,6 +108,16 @@ pub struct LLVMCompiler<'ctx> {
     // Loop control flow tracking
     current_loop_exit: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     current_loop_continue: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    // String interning pool
+    string_pool: StringPool<'ctx>,
+    // Pattern detection flags
+    is_counting_loop: bool,
+    // Silent mode for optimized output
+    silent_mode: bool,
+    // Function tracking
+    functions: HashMap<String, FunctionValue<'ctx>>,
+    // Current function for return statements
+    current_function: Option<FunctionValue<'ctx>>,
 }
 
 impl<'ctx> LLVMCompiler<'ctx> {
@@ -86,12 +161,15 @@ impl<'ctx> LLVMCompiler<'ctx> {
         let strlen_type = i64_type.fn_type(&[i8_ptr_type.into()], false);
         let strlen_func = module.add_function("strlen", strlen_type, None);
         
+        // Create string pool
+        let string_pool = StringPool::new();
+        
         LLVMCompiler {
             context,
             module,
             builder,
-            variables: HashMap::new(),
-            variable_types: HashMap::new(),
+            variables: HashMap::with_capacity(128), // Pre-allocate space for variables
+            variable_types: HashMap::with_capacity(128),
             printf_func,
             i64_type,
             sprintf_func,
@@ -100,11 +178,22 @@ impl<'ctx> LLVMCompiler<'ctx> {
             strlen_func,
             current_loop_exit: None,
             current_loop_continue: None,
+            string_pool,
+            is_counting_loop: false,
+            silent_mode: false,
+            functions: HashMap::with_capacity(32), // Pre-allocate space for functions
+            current_function: None,
         }
     }
     
+    // Set silent mode for optimized output
+    pub fn with_silent_mode(mut self, silent: bool) -> Self {
+        self.silent_mode = silent;
+        self
+    }
+    
     // Create an entry point
-    pub fn create_main_function(&self) -> FunctionValue<'ctx> {
+    pub fn create_main_function(&mut self) -> FunctionValue<'ctx> {
         let i32_type = self.context.i32_type();
         let main_func_type = i32_type.fn_type(&[], false);
         let main_func = self.module.add_function("main", main_func_type, None);
@@ -115,7 +204,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
     }
     
     // Create a print function that will use printf
-    fn create_print_string(&self, text: &str) {
+    fn create_print_string(&mut self, text: &str) {
         // Get a string literal pointer
         let str_ptr = self.create_string_literal(text);
         
@@ -148,8 +237,97 @@ impl<'ctx> LLVMCompiler<'ctx> {
         Ok(())
     }
     
+    // Compile a function definition
+    fn compile_function(&mut self, name: String, is_public: bool, parameters: Vec<FunctionParam>, body: Vec<Stmt>) -> Result<FunctionValue<'ctx>, String> {
+        // Create parameter types
+        let mut param_types = Vec::with_capacity(parameters.len());
+        for _ in &parameters {
+            // All parameters are i64 for now (we can add more types later)
+            param_types.push(self.i64_type.into());
+        }
+        
+        // Create function type
+        let function_type = self.i64_type.fn_type(&param_types, false);
+        
+        // Create the function
+        let linkage = if is_public {
+            inkwell::module::Linkage::External
+        } else {
+            inkwell::module::Linkage::Private
+        };
+        
+        let function = self.module.add_function(&name, function_type, Some(linkage));
+        
+        // Create entry block
+        let entry_block = self.context.append_basic_block(function, "entry");
+        self.builder.position_at_end(entry_block);
+        
+        // Save current function
+        let old_function = self.current_function;
+        self.current_function = Some(function);
+        
+        // Store parameters in local variables
+        let mut old_variables = HashMap::new();
+        for (i, param) in parameters.iter().enumerate() {
+            let param_value = function.get_nth_param(i as u32).unwrap();
+            
+            // Create a local variable for the parameter
+            let alloca = self.create_entry_block_alloca(&param.name);
+            
+            // Store the parameter value in the local variable
+            self.builder.build_store(alloca, param_value).unwrap();
+            
+            // Save old variable with the same name if it exists
+            if let Some(old_ptr) = self.variables.get(&param.name) {
+                old_variables.insert(param.name.clone(), *old_ptr);
+            }
+            
+            // Add the parameter to our variables
+            self.variables.insert(param.name.clone(), alloca);
+            
+            // Add the parameter type
+            self.variable_types.insert(param.name.clone(), VariableType::Integer);
+        }
+        
+        // Compile function body
+        for stmt in body {
+            self.compile_statement(stmt)?;
+        }
+        
+        // If no return statement was found, add a default return of 0
+        if !self.builder.get_insert_block().unwrap().get_terminator().is_some() {
+            let return_value = self.i64_type.const_int(0, false);
+            self.builder.build_return(Some(&return_value)).unwrap();
+        }
+        
+        // Verify the function
+        if function.verify(true) {
+            // Add the function to our function table
+            self.functions.insert(name, function);
+            
+            // Restore saved variables
+            for (name, ptr) in old_variables {
+                self.variables.insert(name, ptr);
+            }
+            
+            // Restore old function
+            self.current_function = old_function;
+            
+            Ok(function)
+        } else {
+            // Remove the function if verification fails
+            unsafe {
+                function.delete();
+            }
+            Err("Function verification failed".to_string())
+        }
+    }
+    
     fn compile_statement(&mut self, stmt: Stmt) -> Result<(), String> {
         match stmt {
+            Stmt::Function { name, is_public, parameters, body } => {
+                self.compile_function(name, is_public, parameters, body)?;
+            },
             Stmt::Declaration { name, initializer } => {
                 // Check if this is a variable update (name already exists)
                 if self.variables.contains_key(&name) {
@@ -311,63 +489,212 @@ impl<'ctx> LLVMCompiler<'ctx> {
                 // Get the current function
                 let current_function = self.builder.get_insert_block().unwrap().get_parent().unwrap();
 
-                // Create basic blocks for the loop
-                let condition_block = self.context.append_basic_block(current_function, "while_cond");
-                let body_block = self.context.append_basic_block(current_function, "while_body");
-                let exit_block = self.context.append_basic_block(current_function, "while_exit");
-
-                // Branch to the condition block
-                self.builder.build_unconditional_branch(condition_block).unwrap();
-
-                // Start with the condition block
-                self.builder.position_at_end(condition_block);
-
-                // Compile the condition
-                let condition_value = self.compile_expression(condition.clone())?;
-
-                // Convert to boolean (0 or 1)
-                let condition_bool = match condition_value {
-                    BasicValueEnum::IntValue(int_val) => {
-                        // Compare with 0 to get a boolean value (0 = false, anything else = true)
-                        let zero = self.i64_type.const_int(0, false);
-                        self.builder.build_int_compare(
-                            inkwell::IntPredicate::NE,
-                            int_val,
-                            zero,
-                            "while_cond"
-                        ).unwrap()
-                    },
-                    _ => return Err("Expected integer condition in while loop".to_string())
-                };
-
-                // Conditional branch: if condition is true, go to body, otherwise exit
-                self.builder.build_conditional_branch(condition_bool, body_block, exit_block).unwrap();
-
-                // Set up the loop body block
-                self.builder.position_at_end(body_block);
-
-                // Save the old loop exit and continue blocks (for nested loops)
-                let old_loop_exit = self.current_loop_exit;
-                let old_loop_continue = self.current_loop_continue;
-
-                // Update the current loop exit and continue blocks
-                self.current_loop_exit = Some(exit_block);
-                self.current_loop_continue = Some(condition_block); // Continue goes back to condition
-
-                // Compile the loop body
-                for stmt in body {
-                    self.compile_statement(stmt)?;
+                // Check for counting loop pattern - this is similar to what we did in the interpreter
+                let mut is_counting_loop = false;
+                let mut counter_var_name = String::new();
+                let mut counter_limit = 0;
+                let mut counting_up = true; // true = count up, false = count down
+                
+                // Look for the pattern "$count < 1000000" or similar
+                if let Expr::Binary { left, operator, right } = &condition {
+                    let op_type = &operator.token_type;
+                    if let (Expr::VariableRef(var_name), Expr::NumberLiteral(limit)) = (&**left, &**right) {
+                        if var_name.starts_with('$') &&
+                           (*op_type == TokenType::Less || *op_type == TokenType::LessEqual) {
+                            // Potential counting up loop
+                            counter_var_name = var_name[1..].to_string();
+                            counter_limit = *limit;
+                            counting_up = true;
+                            
+                            // Now check if body matches pattern
+                            if body.len() == 2 {
+                                // Check for increment pattern: count : $count + 1
+                                if let Stmt::Declaration { name, initializer } = &body[0] {
+                                    if name == &counter_var_name {
+                                        if let Expr::Binary { left: l, operator: op, right: r } = initializer {
+                                            if let (Expr::VariableRef(vname), Expr::NumberLiteral(inc)) = (&**l, &**r) {
+                                                if vname == var_name && op.token_type == TokenType::Plus && *inc == 1 {
+                                                    // Check for print statement
+                                                    if matches!(&body[1], Stmt::Print(exprs) if exprs.len() == 1 &&
+                                                            matches!(&exprs[0], Expr::VariableRef(vname) if vname == var_name)) ||
+                                                       matches!(&body[1], Stmt::Command { name, args } if
+                                                            name == "print" && args.len() == 1 &&
+                                                            matches!(&args[0], Expr::VariableRef(vname) if vname == var_name)) {
+                                                        is_counting_loop = true;
+                                                        self.is_counting_loop = true;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
+                
+                if is_counting_loop && !self.silent_mode {
+                    // Generate optimized counting loop
+                    println!("Generating optimized counting loop...");
+                    
+                    // Get counter variable
+                    let counter_ptr = *self.variables.get(&counter_var_name).unwrap();
+                    
+                    // Get the initial counter value
+                    let counter_val = self.builder.build_load(self.i64_type, counter_ptr, "counter").unwrap()
+                        .into_int_value();
+                        
+                    // Create the end condition block, loop body, and exit blocks
+                    let header_block = self.context.append_basic_block(current_function, "count_header");
+                    let body_block = self.context.append_basic_block(current_function, "count_body");
+                    let exit_block = self.context.append_basic_block(current_function, "count_exit");
+                    
+                    // Branch to the header block
+                    self.builder.build_unconditional_branch(header_block).unwrap();
+                    self.builder.position_at_end(header_block);
+                    
+                    // Create the loop counter PHI node
+                    let counter_phi = self.builder.build_phi(self.i64_type, "count_iter").unwrap();
+                    // Add the initial value
+                    counter_phi.add_incoming(&[(&counter_val, self.builder.get_insert_block().unwrap())]);
+                    
+                    // Compare with the limit
+                    let limit_val = self.i64_type.const_int(counter_limit as u64, false);
+                    let cmp_result = if counting_up {
+                        self.builder.build_int_compare(
+                            inkwell::IntPredicate::SLT, // <
+                            counter_phi.as_basic_value().into_int_value(),
+                            limit_val,
+                            "count_cmp"
+                        ).unwrap()
+                    } else {
+                        self.builder.build_int_compare(
+                            inkwell::IntPredicate::SGT, // >
+                            counter_phi.as_basic_value().into_int_value(),
+                            limit_val,
+                            "count_cmp"
+                        ).unwrap()
+                    };
+                    
+                    // Conditional branch to either body or exit
+                    self.builder.build_conditional_branch(cmp_result, body_block, exit_block).unwrap();
+                    
+                    // Build the loop body block
+                    self.builder.position_at_end(body_block);
+                    
+                    // Save the old loop exit and continue blocks (for nested loops)
+                    let old_loop_exit = self.current_loop_exit;
+                    let old_loop_continue = self.current_loop_continue;
+                    
+                    // Update the current loop exit and continue blocks
+                    self.current_loop_exit = Some(exit_block);
+                    self.current_loop_continue = Some(header_block); // Continue goes back to header
+                    
+                    // Print the current counter value
+                    let counter_val = counter_phi.as_basic_value();
+                    self.print_value(counter_val)?;
+                    
+                    // Increment the counter
+                    let increment = self.i64_type.const_int(1, false);
+                    let next_counter = if counting_up {
+                        self.builder.build_int_add(
+                            counter_phi.as_basic_value().into_int_value(),
+                            increment,
+                            "next_counter"
+                        ).unwrap()
+                    } else {
+                        self.builder.build_int_sub(
+                            counter_phi.as_basic_value().into_int_value(),
+                            increment,
+                            "next_counter"
+                        ).unwrap()
+                    };
+                    
+                    // Add the incremented counter to the PHI node
+                    counter_phi.add_incoming(&[(&next_counter, self.builder.get_insert_block().unwrap())]);
+                    
+                    // Branch back to the header
+                    self.builder.build_unconditional_branch(header_block).unwrap();
+                    
+                    // Store the final counter value in the variable
+                    self.builder.position_at_end(exit_block);
+                    // Store counter in the variable
+                    let final_counter_val = if counting_up {
+                        // At exit, counter equals limit
+                        limit_val
+                    } else {
+                        // At exit for counting down, counter equals limit - 1
+                        self.builder.build_int_sub(
+                            limit_val,
+                            self.i64_type.const_int(1, false),
+                            "final_counter"
+                        ).unwrap()
+                    };
+                    self.builder.build_store(counter_ptr, final_counter_val).unwrap();
+                    
+                    // Restore the old loop exit and continue blocks
+                    self.current_loop_exit = old_loop_exit;
+                    self.current_loop_continue = old_loop_continue;
+                } else {
+                    // Use the standard loop implementation
+                    // Create basic blocks for the loop
+                    let condition_block = self.context.append_basic_block(current_function, "while_cond");
+                    let body_block = self.context.append_basic_block(current_function, "while_body");
+                    let exit_block = self.context.append_basic_block(current_function, "while_exit");
 
-                // Restore the old loop exit and continue blocks
-                self.current_loop_exit = old_loop_exit;
-                self.current_loop_continue = old_loop_continue;
+                    // Branch to the condition block
+                    self.builder.build_unconditional_branch(condition_block).unwrap();
 
-                // Unconditionally branch back to the condition block
-                self.builder.build_unconditional_branch(condition_block).unwrap();
+                    // Start with the condition block
+                    self.builder.position_at_end(condition_block);
 
-                // Position at the exit block for subsequent code
-                self.builder.position_at_end(exit_block);
+                    // Compile the condition
+                    let condition_value = self.compile_expression(condition.clone())?;
+
+                    // Convert to boolean (0 or 1)
+                    let condition_bool = match condition_value {
+                        BasicValueEnum::IntValue(int_val) => {
+                            // Compare with 0 to get a boolean value (0 = false, anything else = true)
+                            let zero = self.i64_type.const_int(0, false);
+                            self.builder.build_int_compare(
+                                inkwell::IntPredicate::NE,
+                                int_val,
+                                zero,
+                                "while_cond"
+                            ).unwrap()
+                        },
+                        _ => return Err("Expected integer condition in while loop".to_string())
+                    };
+
+                    // Conditional branch: if condition is true, go to body, otherwise exit
+                    self.builder.build_conditional_branch(condition_bool, body_block, exit_block).unwrap();
+
+                    // Set up the loop body block
+                    self.builder.position_at_end(body_block);
+
+                    // Save the old loop exit and continue blocks (for nested loops)
+                    let old_loop_exit = self.current_loop_exit;
+                    let old_loop_continue = self.current_loop_continue;
+
+                    // Update the current loop exit and continue blocks
+                    self.current_loop_exit = Some(exit_block);
+                    self.current_loop_continue = Some(condition_block); // Continue goes back to condition
+
+                    // Compile the loop body
+                    for stmt in body {
+                        self.compile_statement(stmt)?;
+                    }
+
+                    // Restore the old loop exit and continue blocks
+                    self.current_loop_exit = old_loop_exit;
+                    self.current_loop_continue = old_loop_continue;
+
+                    // Unconditionally branch back to the condition block
+                    self.builder.build_unconditional_branch(condition_block).unwrap();
+
+                    // Position at the exit block for subsequent code
+                    self.builder.position_at_end(exit_block);
+                }
             },
             Stmt::For { initializer, update, condition, body } => {
                 // Get the current function
@@ -582,6 +909,50 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     fn compile_expression(&mut self, expr: Expr) -> Result<BasicValueEnum<'ctx>, String> {
         match expr {
+            Expr::FunctionCall { name, arguments } => {
+                // Clone the function reference to avoid borrowing issues
+                let function_clone = if let Some(function) = self.functions.get(&name) {
+                    *function
+                } else {
+                    return Err(format!("Undefined function: {}", name));
+                };
+                
+                // Compile the arguments
+                let mut compiled_args = Vec::with_capacity(arguments.len());
+                for arg in arguments {
+                    let compiled_arg = self.compile_expression(arg)?;
+                    compiled_args.push(compiled_arg.into());
+                }
+                
+                // Check that we have the right number of arguments
+                if compiled_args.len() != function_clone.count_params() as usize {
+                    return Err(format!(
+                        "Function {} takes {} arguments, but {} were provided",
+                        name,
+                        function_clone.count_params(),
+                        compiled_args.len()
+                    ));
+                }
+                
+                // Create a unique call ID
+                let call_id = format!("call_{}", self.module.get_globals().count());
+                
+                // Build the function call
+                let result = self.handle_llvm_err(
+                    self.builder.build_call(function_clone, &compiled_args, &call_id),
+                    &format!("building call to function {}", name)
+                )?;
+                
+                // Get the return value
+                match result.try_as_basic_value() {
+                    // Function returned a value
+                    Either::Left(value) => Ok(value),
+                    // Function returned void (should not happen for our functions)
+                    Either::Right(_) => {
+                        Ok(self.i64_type.const_int(0, false).into())
+                    }
+                }
+            },
             Expr::FloatLiteral(value) => {
                 // Currently we don't have proper float support in the LLVM compiler
                 // So we convert it to an integer value for now
@@ -1426,23 +1797,14 @@ impl<'ctx> LLVMCompiler<'ctx> {
     }
     
     // Create a string literal as a global constant
-    fn create_string_literal(&self, string_val: &str) -> PointerValue<'ctx> {
-        let i8_type = self.context.i8_type();
-        let string_type = i8_type.array_type((string_val.len() + 1) as u32);
-        
-        // Create a unique name for the global string
-        let global_name = format!("str_{}", self.module.get_globals().count());
-        let global_string = self.module.add_global(string_type, None, &global_name);
-        global_string.set_constant(true);
-        global_string.set_linkage(inkwell::module::Linkage::Private);
-        global_string.set_initializer(&self.context.const_string(string_val.as_bytes(), true));
-        
-        // Create a pointer to the string data
-        let zero = self.context.i32_type().const_zero();
-        let indices = [zero, zero];
-        unsafe {
-            self.builder.build_gep(i8_type, global_string.as_pointer_value(), &indices, "str_ptr").unwrap()
-        }
+    fn create_string_literal(&mut self, string_val: &str) -> PointerValue<'ctx> {
+        // Use the string pool to efficiently manage string literals
+        self.string_pool.get_or_create_global_string(
+            string_val, 
+            self.context, 
+            &self.module, 
+            &self.builder
+        )
     }
     
     // Allocate heap memory for a string
@@ -1458,45 +1820,91 @@ impl<'ctx> LLVMCompiler<'ctx> {
     }
     
     // Create a heap-allocated string from a string literal
-    fn create_heap_string(&self, string_val: &str) -> PointerValue<'ctx> {
-        // Allocate memory for the string (+1 for null terminator)
+    fn create_heap_string(&mut self, string_val: &str) -> PointerValue<'ctx> {
+        // First, check if we already have identical static constant
+        // If this is a frequently used string, we can directly return the static version
+        if string_val.len() < 32 {  // Only apply this optimization for small strings
+            // Intern the string
+            let _interned = self.string_pool.intern(string_val.to_string());
+            // Check if this string has already been compiled as a global constant
+            if let Some(&ptr) = self.string_pool.global_strings.get(string_val) {
+                // No need to allocate if we already have it
+                return ptr;
+            }
+        }
+        
+        // Otherwise, allocate memory for the string (+1 for null terminator)
         let size = string_val.len() as u64 + 1;
         let heap_ptr = self.allocate_string(size);
         
-        // Copy the string data to the allocated memory
-        for (i, byte) in string_val.bytes().enumerate() {
-            // Get pointer to character position
-            let char_ptr = unsafe {
+        // Use a more efficient method for small strings
+        if string_val.len() <= 32 {
+            // For small strings, we can use memcpy intrinsic
+            let src_ptr = self.create_string_literal(string_val);
+            // Use the llvm.memcpy intrinsic
+            let void_ptr_type = self.context.ptr_type(AddressSpace::default());
+            let memcpy_type = self.context.void_type().fn_type(
+                &[void_ptr_type.into(), void_ptr_type.into(), self.i64_type.into()],
+                false
+            );
+            
+            // Get or create the memcpy intrinsic
+            let memcpy_fn = self.module.get_function("llvm.memcpy.p0i8.p0i8.i64")
+                .unwrap_or_else(|| {
+                    self.module.add_function(
+                        "llvm.memcpy.p0i8.p0i8.i64", 
+                        memcpy_type, 
+                        None
+                    )
+                });
+            
+            // Call memcpy to copy the string
+            self.builder.build_call(
+                memcpy_fn,
+                &[
+                    heap_ptr.into(), 
+                    src_ptr.into(), 
+                    self.i64_type.const_int(size, false).into(),
+                ],
+                "memcpy_call"
+            ).unwrap();
+        } else {
+            // For larger strings, use the old character-by-character approach
+            // Copy the string data to the allocated memory
+            for (i, byte) in string_val.bytes().enumerate() {
+                // Get pointer to character position
+                let char_ptr = unsafe {
+                    self.builder.build_gep(
+                        self.context.i8_type(),
+                        heap_ptr,
+                        &[self.context.i32_type().const_int(i as u64, false)],
+                        &format!("char_ptr_{}", i)
+                    ).unwrap()
+                };
+                
+                // Store the character
+                let char_val = self.context.i8_type().const_int(byte as u64, false);
+                self.builder.build_store(char_ptr, char_val).unwrap();
+            }
+            
+            // Add null terminator
+            let null_ptr = unsafe {
                 self.builder.build_gep(
                     self.context.i8_type(),
                     heap_ptr,
-                    &[self.context.i32_type().const_int(i as u64, false)],
-                    &format!("char_ptr_{}", i)
+                    &[self.context.i32_type().const_int(string_val.len() as u64, false)],
+                    "null_ptr"
                 ).unwrap()
             };
             
-            // Store the character
-            let char_val = self.context.i8_type().const_int(byte as u64, false);
-            self.builder.build_store(char_ptr, char_val).unwrap();
+            let null_char = self.context.i8_type().const_int(0, false);
+            self.builder.build_store(null_ptr, null_char).unwrap();
         }
-        
-        // Add null terminator
-        let null_ptr = unsafe {
-            self.builder.build_gep(
-                self.context.i8_type(),
-                heap_ptr,
-                &[self.context.i32_type().const_int(string_val.len() as u64, false)],
-                "null_ptr"
-            ).unwrap()
-        };
-        
-        let null_char = self.context.i8_type().const_int(0, false);
-        self.builder.build_store(null_ptr, null_char).unwrap();
         
         heap_ptr
     }
     
-    fn print_value(&self, value: BasicValueEnum<'ctx>) -> Result<(), String> {
+    fn print_value(&mut self, value: BasicValueEnum<'ctx>) -> Result<(), String> {
         // Create a unique printf call id to avoid name conflicts
         let call_id = format!("printf_call_{}", self.module.get_globals().count());
 
@@ -1677,7 +2085,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
 }
 
 // Top-level compile function that takes source code and outputs binary
-pub fn compile(source: &str, file_path: &str) -> Result<(), String> {
+pub fn compile(source: &str, file_path: &str, silent_mode: bool) -> Result<(), String> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -1693,25 +2101,34 @@ pub fn compile(source: &str, file_path: &str) -> Result<(), String> {
         .to_string_lossy();
     let module_name = file_stem.to_string();
     
-    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name);
+    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name).with_silent_mode(silent_mode);
     llvm_compiler.compile(statements)?;
     
     // Generate output paths
     let ir_path = format!("{}.ll", module_name);
     llvm_compiler.write_to_file(&ir_path)?;
     
-    println!("Generated LLVM IR: {}", ir_path);
+    if !silent_mode {
+        println!("Generated LLVM IR: {}", ir_path);
+        println!("Generating native executable...");
+    }
     
     // Generate executable
-    println!("Generating native executable...");
     llvm_compiler.create_executable(&module_name)?;
     
-    println!("Compilation successful!");
+    if !silent_mode {
+        println!("Compilation successful!");
+    }
     Ok(())
 }
 
+// Backward compatibility wrapper
+pub fn compile_default(source: &str, file_path: &str) -> Result<(), String> {
+    compile(source, file_path, false)
+}
+
 // JIT compile and run function - used for development/testing
-pub fn jit_compile_and_run(source: &str, file_path: &str) -> Result<(), String> {
+pub fn jit_compile_and_run(source: &str, file_path: &str, silent_mode: bool) -> Result<(), String> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -1727,16 +2144,23 @@ pub fn jit_compile_and_run(source: &str, file_path: &str) -> Result<(), String> 
         .to_string_lossy();
     let module_name = file_stem.to_string();
     
-    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name);
+    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name).with_silent_mode(silent_mode);
     llvm_compiler.compile(statements)?;
     
     // Generate IR for debugging
     let ir_path = format!("{}.ll", module_name);
     llvm_compiler.write_to_file(&ir_path)?;
     
-    println!("Generated LLVM IR: {}", ir_path);
+    if !silent_mode {
+        println!("Generated LLVM IR: {}", ir_path);
+        println!("Running the program with JIT...");
+    }
     
     // JIT compile and run
-    println!("Running the program with JIT...");
     llvm_compiler.jit_compile_and_run()
+}
+
+// Backward compatibility wrapper
+pub fn jit_compile_and_run_default(source: &str, file_path: &str) -> Result<(), String> {
+    jit_compile_and_run(source, file_path, false)
 }

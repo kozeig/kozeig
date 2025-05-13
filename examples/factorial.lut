@@ -1,0 +1,25 @@
+-- Recursive factorial function
+func pub factorial { n : number ! } [
+    -- Base case: 0! and 1! are both 1
+    if { $n <= 1 } [
+        1
+    ] else [
+        -- Recursive case: n! = n * (n-1)!
+        $n * call { factorial, $n - 1 }
+    ]
+]
+
+-- More intensive version - calculate multiple factorials repeatedly
+iterations : 100000  -- Increased iterations for more substantial work
+max_factorial : 20   -- Calculate factorial up to this number
+result : 0
+
+print { 'Running ', $iterations, ' factorial calculations' }
+
+for { i : 0, $i + 1, $i < $iterations } [
+    -- Calculate a different factorial each time
+    n : $i % $max_factorial + 1  -- Values 1 to max_factorial
+    result : call { factorial, $n }
+]
+
+print { 'Final factorial result: ', $result }

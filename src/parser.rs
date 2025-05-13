@@ -1,6 +1,6 @@
 use crate::lexer::{Token, TokenType};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
     VariableRef(String),
     NumberLiteral(i64),
@@ -12,6 +12,11 @@ pub enum Expr {
     Command {
         name: String,
         args: Vec<Expr>,
+    },
+    // Function call
+    FunctionCall {
+        name: String,
+        arguments: Vec<Expr>,
     },
     // New operator expressions
     Binary {
@@ -33,7 +38,14 @@ pub enum Expr {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionParam {
+    pub name: String,
+    pub param_type: String,
+    pub initialized: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Declaration {
         name: String,
@@ -59,6 +71,12 @@ pub enum Stmt {
         initializer: Expr,
         update: Expr,
         condition: Expr,
+        body: Vec<Stmt>,
+    },
+    Function {
+        name: String,
+        is_public: bool,
+        parameters: Vec<FunctionParam>,
         body: Vec<Stmt>,
     },
     Break,
@@ -114,6 +132,10 @@ impl Parser {
 
         if self.match_token(TokenType::For) {
             return self.for_statement();
+        }
+
+        if self.match_token(TokenType::Func) {
+            return self.function_declaration();
         }
 
         if self.match_token(TokenType::Break) {
@@ -616,7 +638,153 @@ impl Parser {
         self.primary()
     }
     
+    // Parse function declaration: func pub { a : number !, b : fp ! } [<function>]
+    fn function_declaration(&mut self) -> Result<Stmt, String> {
+        // Check for visibility modifier (pub or prot)
+        let is_public = if self.match_token(TokenType::Pub) {
+            true
+        } else if self.match_token(TokenType::Prot) {
+            false
+        } else {
+            return Err("Expected 'pub' or 'prot' after 'func'".to_string());
+        };
+
+        // Get the function name from the token before the left brace
+        let name = if self.match_token(TokenType::Register) {
+            self.previous().lexeme.clone()
+        } else {
+            return Err("Expected function name after visibility modifier".to_string());
+        };
+
+        // Expect left brace for parameter list
+        self.consume(TokenType::LeftBrace, "Expected '{' after function name")?;
+
+        // Parse parameters
+        let mut parameters = Vec::new();
+        
+        // Parse parameters until we see right brace
+        if !self.check(TokenType::RightBrace) {
+            loop {
+                // Parameter name
+                let param_name = if self.match_token(TokenType::Register) {
+                    self.previous().lexeme.clone()
+                } else {
+                    return Err("Expected parameter name in function declaration".to_string());
+                };
+
+                // Expect colon
+                self.consume(TokenType::Colon, "Expected ':' after parameter name")?;
+
+                // Parameter type
+                let param_type = if self.match_token(TokenType::Command) {
+                    self.previous().lexeme.clone()
+                } else {
+                    return Err("Expected parameter type after ':'".to_string());
+                };
+
+                // Check for ! (uninitialized parameter)
+                let initialized = !self.match_token(TokenType::Not);
+
+                // Add the parameter
+                parameters.push(FunctionParam {
+                    name: param_name,
+                    param_type,
+                    initialized,
+                });
+
+                // If we see a comma, continue parsing parameters
+                if !self.match_token(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+
+        // Expect right brace after parameter list
+        self.consume(TokenType::RightBrace, "Expected '}' after parameter list")?;
+
+        // Expect left bracket for function body
+        self.consume(TokenType::LeftBracket, "Expected '[' to begin function body")?;
+
+        // Skip any newlines
+        while self.match_token(TokenType::Newline) {}
+
+        // Parse function body
+        let mut body = Vec::new();
+
+        // Continue until we hit a right bracket or EOF
+        while !self.check(TokenType::RightBracket) && !self.is_at_end() {
+            // Skip newlines or statement separators
+            if self.match_token(TokenType::Newline) || self.match_token(TokenType::StatementSeparator) {
+                continue;
+            }
+
+            // Handle comments within blocks
+            if self.match_token(TokenType::Comment) {
+                let comment = self.previous().lexeme.clone();
+                body.push(Stmt::Comment(comment));
+                continue;
+            }
+
+            // Process the statement
+            let stmt = self.declaration()?;
+            body.push(stmt);
+
+            // Skip any statement separators after a statement
+            while self.match_token(TokenType::StatementSeparator) {}
+        }
+
+        // Consume the closing bracket
+        self.consume(TokenType::RightBracket, "Expected ']' after function body")?;
+
+        Ok(Stmt::Function {
+            name,
+            is_public,
+            parameters,
+            body,
+        })
+    }
+
+    // Parse function calls: call { function_name }
+    fn function_call(&mut self) -> Result<Expr, String> {
+        // Expect left brace 
+        self.consume(TokenType::LeftBrace, "Expected '{' after 'call'")?;
+        
+        // Get the function name
+        let function_name = if self.match_token(TokenType::Register) {
+            self.previous().lexeme.clone()
+        } else {
+            return Err("Expected function name in call statement".to_string());
+        };
+        
+        // Parse arguments if there are any
+        let mut arguments = Vec::new();
+        
+        // If there's a comma after the function name, parse arguments
+        if self.match_token(TokenType::Comma) {
+            // Parse first argument
+            arguments.push(self.expression()?);
+            
+            // Parse additional arguments
+            while self.match_token(TokenType::Comma) {
+                arguments.push(self.expression()?);
+            }
+        }
+        
+        // Expect right brace
+        self.consume(TokenType::RightBrace, "Expected '}' after function call")?;
+        
+        Ok(Expr::FunctionCall {
+            name: function_name,
+            arguments,
+        })
+    }
+    
     fn primary(&mut self) -> Result<Expr, String> {
+        // Handle function calls with the 'call' keyword
+        if self.match_token(TokenType::Call) {
+            return self.function_call();
+        }
+        
         if self.match_token(TokenType::Variable) {
             let name = self.previous().lexeme.clone();
             return Ok(Expr::VariableRef(name));

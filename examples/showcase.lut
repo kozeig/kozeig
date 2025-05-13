@@ -289,3 +289,117 @@ for { n : 0, $n + 1, $n < 6 } [
     ]
     print { 'Odd number: ', $n }
 ]
+
+-- ----------------
+-- Functions
+-- ----------------
+
+print { '\n--- Functions ---' }
+
+-- Simple function with no parameters
+func pub greet { } [
+    'Hello, welcome to Lüt!'
+]
+
+-- Function with parameters
+func pub add { a : number !, b : number ! } [
+    $a + $b
+]
+
+-- Function with type conversion
+func pub sum_as_text { a : number !, b : number ! } [
+    result : $a + $b
+    { text $result }
+]
+
+-- Function with control flow
+func pub max { a : number !, b : number ! } [
+    if { $a > $b } [
+        $a
+    ] else [
+        $b
+    ]
+]
+
+-- Recursive function
+func pub factorial { n : number ! } [
+    if { $n <= 1 } [
+        1
+    ] else [
+        $n * call { factorial, $n - 1 }
+    ]
+]
+
+-- Function to check if a number is prime
+func pub is_prime { num : number ! } [
+    if { $num <= 1 } [
+        false
+    ] else [
+        if { $num <= 3 } [
+            true
+        ] else [
+            if { $num % 2 == 0 || $num % 3 == 0 } [
+                false
+            ] else [
+                -- Check divisibility by numbers of form 6k±1
+                is_divisible : false
+                
+                -- Initialize loop variables
+                i : 5
+                
+                while { $i * $i <= $num && !$is_divisible } [
+                    if { $num % $i == 0 || $num % ($i + 2) == 0 } [
+                        is_divisible : true
+                    ]
+                    i : $i + 6
+                ]
+                
+                !$is_divisible
+            ]
+        ]
+    ]
+]
+
+-- Function that uses multiple other functions
+func pub analyze_number { n : number ! } [
+    -- Create a summary text about the number
+    summary : 'Number ' + { text $n } + ' is '
+    
+    -- Check if the number is prime
+    if { call { is_prime, $n } } [
+        summary : $summary + 'prime, '
+    ] else [
+        summary : $summary + 'not prime, '
+    ]
+    
+    -- Add information about factorial
+    if { $n <= 10 } [
+        fact : call { factorial, $n }
+        summary : $summary + 'factorial is ' + { text $fact }
+    ] else [
+        summary : $summary + 'factorial is too large to compute'
+    ]
+    
+    -- Return the summary
+    $summary
+]
+
+-- Calling functions and using their results
+print { 'Greeting: ', call { greet } }
+print { 'Sum of 7 and 5: ', call { add, 7, 5 } }
+print { 'Sum as text: ', call { sum_as_text, 10, 20 } }
+print { 'Maximum of 15 and 25: ', call { max, 15, 25 } }
+print { 'Factorial of 5: ', call { factorial, 5 } }
+
+-- Testing the is_prime function
+for { num : 1, $num + 1, $num <= 20 } [
+    prime_status : call { is_prime, $num } ? 'prime' : 'not prime'
+    print { 'Number ', $num, ' is ', $prime_status }
+]
+
+-- Using the analyze_number function
+print { '\n--- Advanced Function Usage ---' }
+for { test_num : 5, $test_num + 2, $test_num <= 13 } [
+    analysis : call { analyze_number, $test_num }
+    print { $analysis }
+]

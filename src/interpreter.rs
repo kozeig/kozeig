@@ -1,5 +1,5 @@
 use crate::lexer::{Lexer, TokenType};
-use crate::parser::{Expr, Parser, Stmt};
+use crate::parser::{Expr, FunctionParam, Parser, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufWriter, Write};
 use std::rc::Rc;
@@ -10,6 +10,7 @@ enum ControlFlow {
     None,
     Break,
     Continue,
+    Return(Option<Value>),
 }
 
 // We don't need this complex pattern recognition approach anymore
@@ -116,9 +117,19 @@ pub struct Interpreter {
     output_buffer: Option<BufWriter<io::Stdout>>,
     // Track loop iterations for adaptive optimization
     loop_counter: usize,
+    // Function table to store defined functions
+    functions: HashMap<String, Rc<Function>>,
 }
 
 // Use memory-efficient representation for values
+#[derive(Debug, Clone, PartialEq)]
+pub struct Function {
+    name: String,
+    is_public: bool,
+    parameters: Vec<FunctionParam>,
+    body: Vec<Stmt>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(i64),
@@ -127,6 +138,7 @@ pub enum Value {
     Boolean(bool),
     Array(Vec<Value>),
     Array2D(Vec<Vec<Value>>),
+    Function(Rc<Function>), // Use reference counting for functions
     Null,
 }
 
@@ -164,6 +176,7 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, "]")
             }
+            Value::Function(func) => write!(f, "<function {}>", func.name),
             Value::Null => write!(f, "null"),
         }
     }
@@ -179,6 +192,7 @@ fn is_truthy(value: &Value) -> bool {
         Value::Text(s) => !s.is_empty(),
         Value::Array(arr) => !arr.is_empty(),
         Value::Array2D(arr) => !arr.is_empty(),
+        Value::Function(_) => true, // Functions are always truthy
         Value::Null => false,
     }
 }
@@ -194,6 +208,7 @@ impl Interpreter {
             silent_mode: false,
             output_buffer: Some(BufWriter::with_capacity(131072, io::stdout())), // Much larger buffer (128KB)
             loop_counter: 0,
+            functions: HashMap::with_capacity(32), // Pre-allocate space for functions
         }
     }
 
@@ -236,10 +251,26 @@ impl Interpreter {
     fn execute(&mut self, stmt: &Stmt) -> Result<(), String> {
         // Check for control flow interruptions before executing any statement
         if self.control_flow != ControlFlow::None {
-            return Ok(()); // Skip this statement if we're in a break or continue state
+            return Ok(()); // Skip this statement if we're in a break, continue, or return state
         }
 
         match stmt {
+            Stmt::Function { name, is_public, parameters, body } => {
+                // Create a function object
+                let func = Function {
+                    name: name.clone(),
+                    is_public: *is_public,
+                    parameters: parameters.clone(),
+                    body: body.clone(),
+                };
+                
+                // Store the function in the function table
+                let func_rc = Rc::new(func);
+                self.functions.insert(name.clone(), Rc::clone(&func_rc));
+                
+                // Also store the function as a value in the environment for easier access
+                self.environment.insert(name.clone(), Value::Function(func_rc));
+            },
             Stmt::Declaration { name, initializer } => {
                 let value = self.evaluate(initializer)?;
                 self.environment.insert(name.clone(), value);
@@ -848,6 +879,119 @@ impl Interpreter {
         Ok(())
     }
 
+    // Helper function to evaluate a function body with a new scope and capture return value
+    fn evaluate_function_body(&mut self, body: &[Stmt]) -> Result<Value, String> {
+        if body.is_empty() {
+            return Ok(Value::Null);
+        }
+        
+        // In a minimal function with a single expression, the result is the return value
+        if body.len() == 1 {
+            if let Stmt::Expression(expr) = &body[0] {
+                return self.evaluate(expr);
+            }
+        }
+        
+        // For more complex functions, we need to track the last expression value
+        let mut last_expr_value = Value::Null;
+        
+        // Process all statements in the function body
+        for stmt in body {
+            match stmt {
+                Stmt::Expression(expr) => {
+                    // For expressions, evaluate and store the result
+                    last_expr_value = self.evaluate(expr)?;
+                },
+                Stmt::If { condition, then_branch, else_branch } => {
+                    // Special handling for if statements to capture their return values
+                    let condition_value = self.evaluate(condition)?;
+                    
+                    if is_truthy(&condition_value) {
+                        // Execute the then branch and capture its last expression
+                        if !then_branch.is_empty() {
+                            let branch_value = self.evaluate_function_body(then_branch)?;
+                            if branch_value != Value::Null {
+                                last_expr_value = branch_value;
+                            }
+                        }
+                    } else if let Some(else_statements) = else_branch {
+                        // Execute the else branch and capture its last expression
+                        if !else_statements.is_empty() {
+                            let branch_value = self.evaluate_function_body(else_statements)?;
+                            if branch_value != Value::Null {
+                                last_expr_value = branch_value;
+                            }
+                        }
+                    }
+                },
+                _ => {
+                    // For other types of statements, just execute them normally
+                    self.execute(stmt)?;
+                }
+            }
+            
+            // Check for explicit return statements
+            if let ControlFlow::Return(value) = &self.control_flow {
+                last_expr_value = value.clone().unwrap_or(Value::Null);
+                self.control_flow = ControlFlow::None; // Reset control flow
+                break;
+            }
+        }
+        
+        Ok(last_expr_value)
+    }
+    
+    // Helper function to call a function
+    fn call_function(&mut self, func_name: &str, arguments: &[Expr]) -> Result<Value, String> {
+        // Clone the function definition to avoid borrowing issues
+        let func = if let Some(f) = self.functions.get(func_name) {
+            Rc::clone(f)
+        } else {
+            return Err(format!("Undefined function: {}", func_name));
+        };
+        
+        // Create a new environment for the function call
+        let mut saved_environment = HashMap::new();
+        
+        // Verify the number of arguments matches the number of parameters
+        if arguments.len() != func.parameters.len() {
+            return Err(format!(
+                "Function '{}' expects {} arguments, but {} were provided",
+                func_name,
+                func.parameters.len(),
+                arguments.len()
+            ));
+        }
+        
+        // Evaluate all arguments first before modifying the environment
+        let mut arg_values = Vec::with_capacity(arguments.len());
+        for arg in arguments {
+            let arg_value = self.evaluate(arg)?;
+            arg_values.push(arg_value);
+        }
+        
+        // Set up the function parameters in the environment
+        for (i, param) in func.parameters.iter().enumerate() {
+            // Save the original value of the parameter name if it exists
+            if let Some(old_value) = self.environment.get(&param.name) {
+                saved_environment.insert(param.name.clone(), old_value.clone());
+            }
+            
+            // Set the parameter value in the environment
+            self.environment.insert(param.name.clone(), arg_values[i].clone());
+        }
+        
+        // Execute the function body and get the return value
+        let return_value = self.evaluate_function_body(&func.body)?;
+        
+        // Restore the original environment
+        for (name, value) in saved_environment {
+            self.environment.insert(name, value);
+        }
+        
+        Ok(return_value)
+    }
+
     fn evaluate(&mut self, expr: &Expr) -> Result<Value, String> {
         // Check expression cache for literals and other cacheable expressions
         let expr_hash = hash_expr(expr);
@@ -858,6 +1002,10 @@ impl Interpreter {
         }
 
         let result = match expr {
+            Expr::FunctionCall { name, arguments } => {
+                // Call the function
+                self.call_function(name, arguments)
+            },
             Expr::Ternary {
                 condition,
                 then_branch,
