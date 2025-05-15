@@ -17,6 +17,24 @@ func pub|prot functionName { param1 : type !, param2 : type ! } [
 ]
 ```
 
+### Main Function
+
+The main function serves as the entry point to every Lüt program. It is a special function that takes no parameters and should return a value:
+
+```lut
+func pub main {} [
+    -- Program statements
+    
+    'ok'  -- Return value, similar to 'return 0' in C
+]
+```
+
+The main function:
+- Must be named `main`
+- Must be `pub` (public)
+- Takes no parameters (empty braces `{}`)
+- Should return a value as the last expression (conventionally `'ok'`)
+
 The exclamation mark (`!`) after a parameter type indicates that the parameter is uninitialized and must be provided when calling the function.
 
 Functions are called using the `call` keyword:
@@ -39,9 +57,14 @@ func pub add { a : number !, b : number ! } [
     $a + $b  -- Last expression is returned
 ]
 
--- Call the function and store the result
-sum : call { add, 5, 3 }
-print { 'Sum: ', $sum }  -- Outputs: Sum: 8
+-- Define the main function as entry point
+func pub main {} [
+    -- Call the function and store the result
+    sum : call { add, 5, 3 }
+    print { 'Sum: ', $sum }  -- Outputs: Sum: 8
+    
+    'ok'
+]
 ```
 
 Functions can be recursive:
@@ -56,7 +79,12 @@ func pub factorial { n : number ! } [
     ]
 ]
 
-print { 'Factorial of 5: ', call { factorial, 5 } }  -- Outputs: Factorial of 5: 120
+-- Main entry point
+func pub main {} [
+    print { 'Factorial of 5: ', call { factorial, 5 } }  -- Outputs: Factorial of 5: 120
+    
+    'ok'
+]
 ```
 
 ### Comments
@@ -332,52 +360,60 @@ This feature allows for more compact code while maintaining readability.
 
 ```lut
 -- Simple Hello World program
-greeting : { text 'Hello, World!' }
-print { $greeting }
+func pub main {} [
+    greeting : { text 'Hello, World!' }
+    print { $greeting }
+    
+    'ok'
+]
 ```
 
 ### Basic Arithmetic
 
 ```lut
 -- Simple arithmetic example
-a : { number 5 }
-b : { number 10 }
-
--- Addition
-sum : $a + $b
-print { 'Sum: ', $sum }
-
--- Subtraction
-difference : $b - $a
-print { 'Difference: ', $difference }
-
--- Multiplication
-product : $a * $b
-print { 'Product: ', $product }
-
--- Division (includes runtime division-by-zero protection)
-quotient : $b / $a
-print { 'Quotient: ', $quotient }
-
--- Modulo (includes runtime modulo-by-zero protection)
-remainder : $b % $a
-print { 'Remainder: ', $remainder }
-
--- Compound operations with operator precedence
-compound1 : $a + $b * 2
-print { 'Compound (a + b * 2): ', $compound1 }  -- Multiplication happens first
-
--- Using parentheses to override precedence
-compound2 : ($a + $b) * 2
-print { 'Compound ((a + b) * 2): ', $compound2 }
-
--- Conditional logic with current syntax
-if { $a < $b } [
-    print { '$a is less than $b' }
-
-    if { $a * 2 > $b } [
-        print { 'But $a * 2 is greater than $b' }
+func pub main {} [
+    a : { number 5 }
+    b : { number 10 }
+    
+    -- Addition
+    sum : $a + $b
+    print { 'Sum: ', $sum }
+    
+    -- Subtraction
+    difference : $b - $a
+    print { 'Difference: ', $difference }
+    
+    -- Multiplication
+    product : $a * $b
+    print { 'Product: ', $product }
+    
+    -- Division (includes runtime division-by-zero protection)
+    quotient : $b / $a
+    print { 'Quotient: ', $quotient }
+    
+    -- Modulo (includes runtime modulo-by-zero protection)
+    remainder : $b % $a
+    print { 'Remainder: ', $remainder }
+    
+    -- Compound operations with operator precedence
+    compound1 : $a + $b * 2
+    print { 'Compound (a + b * 2): ', $compound1 }  -- Multiplication happens first
+    
+    -- Using parentheses to override precedence
+    compound2 : ($a + $b) * 2
+    print { 'Compound ((a + b) * 2): ', $compound2 }
+    
+    -- Conditional logic with current syntax
+    if { $a < $b } [
+        print { '$a is less than $b' }
+    
+        if { $a * 2 > $b } [
+            print { 'But $a * 2 is greater than $b' }
+        ]
     ]
+    
+    'ok'
 ]
 ```
 
@@ -385,13 +421,17 @@ if { $a < $b } [
 
 ```lut
 -- ASCII conversion example
-h : { asc 72 }
-e : { asc 101 }
-l : { asc 108 }
-l2 : { asc 108 }
-o : { asc 111 }
-
-print { $h, $e, $l, $l2, $o }  -- Prints "hello"
+func pub main {} [
+    h : { asc 72 }
+    e : { asc 101 }
+    l : { asc 108 }
+    l2 : { asc 108 }
+    o : { asc 111 }
+    
+    print { $h, $e, $l, $l2, $o }  -- Prints "hello"
+    
+    'ok'
+]
 ```
 
 ## Identifiers and Naming Conventions

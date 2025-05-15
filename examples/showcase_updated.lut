@@ -1,0 +1,241 @@
+-- ====================================================================
+-- LUT LANGUAGE SHOWCASE WITH MAIN FUNCTION PATTERN
+-- ====================================================================
+-- This file demonstrates modern LUT language features and practical use cases
+-- using the new main function pattern.
+
+-- ====================================================================
+-- UTILITY FUNCTIONS
+-- ====================================================================
+
+-- Calculate factorial recursively
+func pub factorial { n : number ! } [
+    if { $n <= 1 } [
+        1
+    ] else [
+        $n * call { factorial, $n - 1 }
+    ]
+]
+
+-- Calculate fibonacci number recursively
+func pub fibonacci { n : number ! } [
+    if { $n <= 1 } [
+        $n
+    ] else [
+        call { fibonacci, $n - 1 } + call { fibonacci, $n - 2 }
+    ]
+]
+
+-- Check if a number is prime
+func pub is_prime { n : number ! } [
+    if { $n <= 1 } [
+        -- 0 and 1 are not prime
+        false
+    ] else [
+        if { $n <= 3 } [
+            -- 2 and 3 are prime
+            true
+        ] else [
+            if { $n % 2 == 0 || $n % 3 == 0 } [
+                -- Divisible by 2 or 3
+                false
+            ] else [
+                -- Check divisibility by numbers of form 6k ± 1
+                found_divisor : false
+                i : 5
+                
+                while { $i * $i <= $n && !$found_divisor } [
+                    if { $n % $i == 0 || $n % ($i + 2) == 0 } [
+                        found_divisor : true
+                    ]
+                    i : $i + 6
+                ]
+                
+                !$found_divisor
+            ]
+        ]
+    ]
+]
+
+-- Generate an array of prime numbers up to n
+func pub generate_primes { limit : number ! } [
+    primes : array {}
+    
+    for { n : 2, $n + 1, $n <= $limit } [
+        if { call { is_prime, $n } } [
+            -- Use a very simple append operation (in a real implementation, 
+            -- we would have an actual append function)
+            primes : array { $primes, $n }
+        ]
+    ]
+    
+    $primes
+]
+
+-- Simple statistical functions
+func pub average { numbers : array ! } [
+    sum : 0
+    count : call { length, $numbers }
+    
+    for { i : 0, $i + 1, $i < $count } [
+        sum : $sum + call { get, $numbers, $i }
+    ]
+    
+    if { $count > 0 } [
+        $sum / $count
+    ] else [
+        0
+    ]
+]
+
+func pub max { numbers : array ! } [
+    count : call { length, $numbers }
+    
+    if { $count == 0 } [
+        0
+    ] else [
+        current_max : call { get, $numbers, 0 }
+        
+        for { i : 1, $i + 1, $i < $count } [
+            value : call { get, $numbers, $i }
+            if { $value > $current_max } [
+                current_max : $value
+            ]
+        ]
+        
+        $current_max
+    ]
+]
+
+func pub min { numbers : array ! } [
+    count : call { length, $numbers }
+    
+    if { $count == 0 } [
+        0
+    ] else [
+        current_min : call { get, $numbers, 0 }
+        
+        for { i : 1, $i + 1, $i < $count } [
+            value : call { get, $numbers, $i }
+            if { $value < $current_min } [
+                current_min : $value
+            ]
+        ]
+        
+        $current_min
+    ]
+]
+
+-- ====================================================================
+-- DATA PROCESSING EXAMPLE
+-- ====================================================================
+
+-- Simple data processing example - analyzing student scores
+func pub analyze_scores { scores : array ! } [
+    count : call { length, $scores }
+    
+    if { $count == 0 } [
+        print { 'No scores to analyze' }
+        array {}
+    ] else [
+        avg : call { average, $scores }
+        maximum : call { max, $scores }
+        minimum : call { min, $scores }
+        
+        -- Count how many students passed (score >= 60)
+        passing : 0
+        
+        for { i : 0, $i + 1, $i < $count } [
+            score : call { get, $scores, $i }
+            if { $score >= 60 } [
+                passing : $passing + 1
+            ]
+        ]
+        
+        pass_rate : ($passing * 100) / $count
+        
+        -- Return analysis as array
+        analysis : array { $avg, $maximum, $minimum, $pass_rate }
+        $analysis
+    ]
+]
+
+-- ====================================================================
+-- TEXT PROCESSING EXAMPLE
+-- ====================================================================
+
+-- Simple word count function
+func pub count_words { text : text ! } [
+    -- In a real implementation, we would split the text and count words
+    -- This is a simplified version that just counts spaces + 1
+    word_count : 1
+    length : call { length, $text }
+    
+    for { i : 0, $i + 1, $i < $length } [
+        char : call { get, $text, $i }
+        if { $char == ' ' } [
+            word_count : $word_count + 1
+        ]
+    ]
+    
+    $word_count
+]
+
+-- ====================================================================
+-- MAIN FUNCTION - ENTRY POINT
+-- ====================================================================
+
+func pub main {} [
+    print { '===== LUT LANGUAGE SHOWCASE =====' }
+    print { 'Demonstrating the power and flexibility of LUT' }
+    print { '' }
+    
+    -- Demonstrate mathematical functions
+    print { '--- Mathematical Functions ---' }
+    print { 'Factorial of 10: ', call { factorial, 10 } }
+    print { 'Fibonacci(15): ', call { fibonacci, 15 } }
+    print { 'Is 97 prime? ', call { is_prime, 97 } }
+    print { 'Is 100 prime? ', call { is_prime, 100 } }
+    
+    -- Generate and display prime numbers
+    print { '' }
+    print { '--- First 10 Prime Numbers ---' }
+    primes : call { generate_primes, 30 }
+    print { $primes }
+    
+    -- Data processing example
+    print { '' }
+    print { '--- Student Score Analysis ---' }
+    scores : array { 92, 88, 76, 54, 68, 77, 85, 92, 95, 44, 61 }
+    print { 'Student Scores: ', $scores }
+    
+    analysis : call { analyze_scores, $scores }
+    print { 'Average Score: ', call { get, $analysis, 0 } }
+    print { 'Highest Score: ', call { get, $analysis, 1 } }
+    print { 'Lowest Score: ', call { get, $analysis, 2 } }
+    print { 'Pass Rate: ', call { get, $analysis, 3 }, '%' }
+    
+    -- Text processing
+    print { '' }
+    print { '--- Text Processing ---' }
+    sample_text : 'LUT is a powerful and efficient language for quick computations'
+    print { 'Sample text: ', $sample_text }
+    print { 'Word count: ', call { count_words, $sample_text } }
+    
+    -- Performance demonstration - sum of first n numbers
+    print { '' }
+    print { '--- Performance Test: Sum of Numbers ---' }
+    n : 10000
+    sum : 0
+    
+    -- Time this computation (in a real impl we would have a timer)
+    for { i : 1, $i + 1, $i <= $n } [
+        sum : $sum + $i
+    ]
+    
+    print { 'Sum of numbers from 1 to ', $n, ': ', $sum }
+    print { 'Formula check: n*(n+1)/2 = ', $n * ($n + 1) / 2 }
+    
+    -- Return ok to indicate successful termination
+    'ok'
+]

@@ -1,5 +1,6 @@
 use crate::lexer::{Lexer, TokenType};
 use crate::parser::{Expr, FunctionParam, Parser, Stmt};
+use crate::error_reporting::LutError;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufWriter, Write};
 use std::rc::Rc;
@@ -224,22 +225,22 @@ impl Interpreter {
     }
 
     // Flush the buffer if necessary
-    fn flush_buffer(&mut self) -> Result<(), String> {
+    fn flush_buffer(&mut self) -> Result<(), LutError> {
         if let Some(buffer) = &mut self.output_buffer {
             buffer
                 .flush()
-                .map_err(|e| format!("Failed to flush output buffer: {}", e))?;
+                .map_err(|e| LutError::io_error(format!("Failed to flush output buffer: {}", e)))?;
         }
         Ok(())
     }
 
-    pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), String> {
+    pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), LutError> {
         for stmt in statements {
             self.execute(&stmt)?;
 
             // Check for control flow interruptions at the top level
             if self.control_flow != ControlFlow::None {
-                return Err("Unexpected break or continue outside of loop".to_string());
+                return Err(LutError::runtime_error("Unexpected break or continue outside of loop", None));
             }
         }
 
@@ -248,7 +249,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn execute(&mut self, stmt: &Stmt) -> Result<(), String> {
+    fn execute(&mut self, stmt: &Stmt) -> Result<(), LutError> {
         // Check for control flow interruptions before executing any statement
         if self.control_flow != ControlFlow::None {
             return Ok(()); // Skip this statement if we're in a break, continue, or return state
@@ -288,7 +289,7 @@ impl Interpreter {
                         if args.is_empty() {
                             if let Some(buffer) = &mut self.output_buffer {
                                 writeln!(buffer)
-                                    .map_err(|e| format!("Failed to write to buffer: {}", e))?;
+                                    .map_err(|e| LutError::io_error(format!("Failed to write to buffer: {}", e)))?;
                             } else {
                                 println!();
                             }
@@ -300,7 +301,7 @@ impl Interpreter {
                             let value = self.evaluate(&args[0])?;
                             if let Some(buffer) = &mut self.output_buffer {
                                 writeln!(buffer, "{}", value)
-                                    .map_err(|e| format!("Failed to write to buffer: {}", e))?;
+                                    .map_err(|e| LutError::io_error(format!("Failed to write to buffer: {}", e)))?;
                             } else {
                                 println!("{}", value);
                             }
@@ -321,13 +322,13 @@ impl Interpreter {
 
                         if let Some(buffer) = &mut self.output_buffer {
                             writeln!(buffer, "{}", result)
-                                .map_err(|e| format!("Failed to write to buffer: {}", e))?;
+                                .map_err(|e| LutError::io_error(format!("Failed to write to buffer: {}", e)))?;
                         } else {
                             println!("{}", result);
                         }
                     }
                     // Add more commands as needed
-                    _ => return Err(format!("Unknown command: {}", name)),
+                    _ => return Err(LutError::runtime_error(format!("Unknown command: {}", name), None)),
                 }
             }
             Stmt::Print(exprs) => {
@@ -338,7 +339,7 @@ impl Interpreter {
                 if exprs.is_empty() {
                     if let Some(buffer) = &mut self.output_buffer {
                         writeln!(buffer)
-                            .map_err(|e| format!("Failed to write to buffer: {}", e))?;
+                            .map_err(|e| LutError::io_error(format!("Failed to write to buffer: {}", e)))?;
                     } else {
                         println!();
                     }
@@ -350,7 +351,7 @@ impl Interpreter {
                     let value = self.evaluate(&exprs[0])?;
                     if let Some(buffer) = &mut self.output_buffer {
                         writeln!(buffer, "{}", value)
-                            .map_err(|e| format!("Failed to write to buffer: {}", e))?;
+                            .map_err(|e| LutError::io_error(format!("Failed to write to buffer: {}", e)))?;
                     } else {
                         println!("{}", value);
                     }
@@ -371,7 +372,7 @@ impl Interpreter {
 
                 if let Some(buffer) = &mut self.output_buffer {
                     writeln!(buffer, "{}", result)
-                        .map_err(|e| format!("Failed to write to buffer: {}", e))?;
+                        .map_err(|e| LutError::io_error(format!("Failed to write to buffer: {}", e)))?;
                 } else {
                     println!("{}", result);
                 }
@@ -456,10 +457,10 @@ impl Interpreter {
                                 let Some(Value::Number(mut counter)) =
                                     self.environment.get(&var_name_without_prefix).cloned()
                                 else {
-                                    return Err(format!(
+                                    return Err(LutError::runtime_error(format!(
                                         "Counter variable not found: {}",
                                         var_name_without_prefix
-                                    ));
+                                    ), None));
                                 };
 
                                 // Directly access the limit value without cloning
@@ -558,7 +559,7 @@ impl Interpreter {
                                                         )
                                                     };
                                                     write!(buffer, "{}", output).map_err(|e| {
-                                                        format!("Failed to write to buffer: {}", e)
+                                                        LutError::io_error(format!("Failed to write to buffer: {}", e))
                                                     })?;
 
                                                     counter = batch_end;
@@ -566,7 +567,7 @@ impl Interpreter {
 
                                                 // Flush the buffer
                                                 buffer.flush().map_err(|e| {
-                                                    format!("Failed to flush buffer: {}", e)
+                                                    LutError::io_error(format!("Failed to flush buffer: {}", e))
                                                 })?;
                                             } else {
                                                 // Fallback for non-buffered output
@@ -669,7 +670,7 @@ impl Interpreter {
                                                         )
                                                     };
                                                     write!(buffer, "{}", output).map_err(|e| {
-                                                        format!("Failed to write to buffer: {}", e)
+                                                        LutError::io_error(format!("Failed to write to buffer: {}", e))
                                                     })?;
 
                                                     counter = batch_end;
@@ -677,7 +678,7 @@ impl Interpreter {
 
                                                 // Flush the buffer
                                                 buffer.flush().map_err(|e| {
-                                                    format!("Failed to flush buffer: {}", e)
+                                                    LutError::io_error(format!("Failed to flush buffer: {}", e))
                                                 })?;
                                             } else {
                                                 while counter <= limit_val {
@@ -711,10 +712,10 @@ impl Interpreter {
                                                 if let Some(buffer) = &mut self.output_buffer {
                                                     writeln!(buffer, "{}", counter).map_err(
                                                         |e| {
-                                                            format!(
+                                                            LutError::io_error(format!(
                                                                 "Failed to write to buffer: {}",
                                                                 e
-                                                            )
+                                                            ))
                                                         },
                                                     )?;
                                                 } else {
@@ -880,7 +881,7 @@ impl Interpreter {
     }
 
     // Helper function to evaluate a function body with a new scope and capture return value
-    fn evaluate_function_body(&mut self, body: &[Stmt]) -> Result<Value, String> {
+    fn evaluate_function_body(&mut self, body: &[Stmt]) -> Result<Value, LutError> {
         if body.is_empty() {
             return Ok(Value::Null);
         }
@@ -942,12 +943,12 @@ impl Interpreter {
     }
     
     // Helper function to call a function
-    fn call_function(&mut self, func_name: &str, arguments: &[Expr]) -> Result<Value, String> {
+    fn call_function(&mut self, func_name: &str, arguments: &[Expr]) -> Result<Value, LutError> {
         // Clone the function definition to avoid borrowing issues
         let func = if let Some(f) = self.functions.get(func_name) {
             Rc::clone(f)
         } else {
-            return Err(format!("Undefined function: {}", func_name));
+            return Err(LutError::runtime_error(format!("Undefined function: {}", func_name), None));
         };
         
         // Create a new environment for the function call
@@ -955,12 +956,12 @@ impl Interpreter {
         
         // Verify the number of arguments matches the number of parameters
         if arguments.len() != func.parameters.len() {
-            return Err(format!(
+            return Err(LutError::runtime_error(format!(
                 "Function '{}' expects {} arguments, but {} were provided",
                 func_name,
                 func.parameters.len(),
                 arguments.len()
-            ));
+            ), None));
         }
         
         // Evaluate all arguments first before modifying the environment
@@ -992,7 +993,7 @@ impl Interpreter {
         Ok(return_value)
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<Value, String> {
+    fn evaluate(&mut self, expr: &Expr) -> Result<Value, LutError> {
         // Check expression cache for literals and other cacheable expressions
         let expr_hash = hash_expr(expr);
         if expr_hash != 0 {
@@ -1026,10 +1027,106 @@ impl Interpreter {
                     let var_name = &name[1..];
                     match self.environment.get(var_name) {
                         Some(value) => Ok(value.clone()),
-                        None => Err(format!("Undefined variable: {}", var_name)),
+                        None => {
+                            // Calculate Levenshtein (edit) distance between strings
+                            fn levenshtein_distance(a: &str, b: &str) -> usize {
+                                let a_len = a.chars().count();
+                                let b_len = b.chars().count();
+                                
+                                // Handle edge cases
+                                if a_len == 0 { return b_len; }
+                                if b_len == 0 { return a_len; }
+                                
+                                // Create distance matrix
+                                let mut matrix = vec![vec![0; b_len + 1]; a_len + 1];
+                                
+                                // Initialize the matrix
+                                for i in 0..=a_len {
+                                    matrix[i][0] = i;
+                                }
+                                for j in 0..=b_len {
+                                    matrix[0][j] = j;
+                                }
+                                
+                                // Fill the matrix
+                                let a_chars: Vec<char> = a.chars().collect();
+                                let b_chars: Vec<char> = b.chars().collect();
+                                
+                                for i in 1..=a_len {
+                                    for j in 1..=b_len {
+                                        let cost = if a_chars[i-1] == b_chars[j-1] { 0 } else { 1 };
+                                        
+                                        matrix[i][j] = std::cmp::min(
+                                            matrix[i-1][j] + 1,      // deletion
+                                            std::cmp::min(
+                                                matrix[i][j-1] + 1,  // insertion
+                                                matrix[i-1][j-1] + cost // substitution
+                                            )
+                                        );
+                                    }
+                                }
+                                
+                                matrix[a_len][b_len]
+                            }
+                            
+                            // Get a list of available variables to suggest similar ones
+                            let similar_vars: Vec<&String> = self.environment.keys()
+                                .filter(|k| {
+                                    // Skip "main" function for suggestions
+                                    if *k == "main" {
+                                        return false;
+                                    }
+                                    
+                                    // Calculate edit distance for similarity
+                                    let distance = levenshtein_distance(k, var_name);
+                                    
+                                    // Consider similar if:
+                                    // - 1 or 2 edits away for short words
+                                    // - Proportional distance for longer words (max 30% different)
+                                    let max_len = std::cmp::max(k.len(), var_name.len());
+                                    let threshold = if max_len <= 5 {
+                                        1 // For short words, allow 1 change
+                                    } else if max_len <= 10 {
+                                        2 // For medium words, allow 2 changes
+                                    } else {
+                                        // For longer words, scale with length (30% different max)
+                                        (max_len as f64 * 0.3) as usize
+                                    };
+                                    
+                                    distance <= threshold
+                                })
+                                .collect();
+                            
+                            // For debugging, list all variables in the environment
+                            let all_vars = self.environment.keys()
+                                .map(|k| k.clone())
+                                .collect::<Vec<String>>()
+                                .join(", ");
+                                
+                            let mut error_msg = format!("Undefined variable: {}", var_name);
+                            
+                            // Always show the full list of available variables (helpful for debugging)
+                            error_msg.push_str(&format!("\n\nAvailable variables: {}", all_vars));
+                            
+                            // Add suggestions if similar variables found
+                            if !similar_vars.is_empty() {
+                                error_msg.push_str("\n\nDid you mean one of these?");
+                                for var in similar_vars.iter().take(3) {
+                                    error_msg.push_str(&format!("\n  - ${}", var));
+                                }
+                            } else {
+                                error_msg.push_str("\n\nTip: Variables must be declared before use with the format:\n  variable_name : { value }");
+                            }
+                            
+                            Err(LutError::runtime_error(error_msg, None))
+                        }
                     }
                 } else {
-                    Err(format!("Invalid variable reference: {}", name))
+                    Err(LutError::runtime_error(
+                        format!("Invalid variable reference: {}\n\nTip: Variables must be prefixed with $ when used. Did you mean ${}?", 
+                               name, name), 
+                        None
+                    ))
                 }
             }
             Expr::NumberLiteral(value) => {
@@ -1101,14 +1198,14 @@ impl Interpreter {
                                 } else if let Ok(f) = s.parse::<f64>() {
                                     Ok(Value::Float(-f))
                                 } else {
-                                    Err(format!("Cannot negate text value: {}", s))
+                                    Err(LutError::runtime_error(format!("Cannot negate text value: {}", s), None))
                                 }
                             }
-                            _ => Err("Cannot negate non-numeric value".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot negate non-numeric value", None)),
                         }
                     }
                     TokenType::Not => Ok(Value::Boolean(!is_truthy(&right))),
-                    _ => Err(format!("Invalid unary operator: {:?}", operator.token_type)),
+                    _ => Err(LutError::runtime_error(format!("Invalid unary operator: {:?}", operator.token_type), None)),
                 }
             }
             Expr::Binary {
@@ -1202,7 +1299,7 @@ impl Interpreter {
                                 result.push_str(s);
                                 Ok(self.make_text(result))
                             }
-                            _ => Err("Cannot add incompatible types".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot add incompatible types", None)),
                         }
                     }
                     TokenType::Minus => {
@@ -1222,7 +1319,7 @@ impl Interpreter {
                                 } else if let Ok(f1) = s1.parse::<f64>() {
                                     Ok(Value::Float(f1 - *n2 as f64))
                                 } else {
-                                    Err(format!("Cannot subtract from text: {}", s1))
+                                    Err(LutError::runtime_error(format!("Cannot subtract from text: {}", s1), None))
                                 }
                             }
                             (Value::Number(n1), Value::Text(s2)) => {
@@ -1232,7 +1329,7 @@ impl Interpreter {
                                 } else if let Ok(f2) = s2.parse::<f64>() {
                                     Ok(Value::Float(*n1 as f64 - f2))
                                 } else {
-                                    Err(format!("Cannot subtract text: {}", s2))
+                                    Err(LutError::runtime_error(format!("Cannot subtract text: {}", s2), None))
                                 }
                             }
                             (Value::Text(s1), Value::Float(f2)) => {
@@ -1240,7 +1337,7 @@ impl Interpreter {
                                 if let Ok(f1) = s1.parse::<f64>() {
                                     Ok(Value::Float(f1 - f2))
                                 } else {
-                                    Err(format!("Cannot subtract float from text: {}", s1))
+                                    Err(LutError::runtime_error(format!("Cannot subtract float from text: {}", s1), None))
                                 }
                             }
                             (Value::Float(f1), Value::Text(s2)) => {
@@ -1248,10 +1345,10 @@ impl Interpreter {
                                 if let Ok(f2) = s2.parse::<f64>() {
                                     Ok(Value::Float(f1 - f2))
                                 } else {
-                                    Err(format!("Cannot subtract text from float: {}", s2))
+                                    Err(LutError::runtime_error(format!("Cannot subtract text from float: {}", s2), None))
                                 }
                             }
-                            _ => Err("Cannot subtract incompatible types".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot subtract incompatible types", None)),
                         }
                     }
                     TokenType::Star => {
@@ -1268,62 +1365,62 @@ impl Interpreter {
                                 // Efficient string repetition
                                 Ok(self.make_text(s.repeat(*n as usize)))
                             }
-                            _ => Err("Cannot multiply these values".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot multiply these values", None)),
                         }
                     }
                     TokenType::Slash => match (&left_val, &right_val) {
                         (Value::Number(n1), Value::Number(n2)) => {
                             if *n2 == 0 {
-                                return Err("Division by zero".to_string());
+                                return Err(LutError::runtime_error("Division by zero", None));
                             }
                             Ok(Value::Number(n1 / n2))
                         }
                         (Value::Float(f1), Value::Float(f2)) => {
                             if *f2 == 0.0 {
-                                return Err("Division by zero".to_string());
+                                return Err(LutError::runtime_error("Division by zero", None));
                             }
                             Ok(Value::Float(f1 / f2))
                         }
                         (Value::Number(n1), Value::Float(f2)) => {
                             if *f2 == 0.0 {
-                                return Err("Division by zero".to_string());
+                                return Err(LutError::runtime_error("Division by zero", None));
                             }
                             Ok(Value::Float(*n1 as f64 / f2))
                         }
                         (Value::Float(f1), Value::Number(n2)) => {
                             if *n2 == 0 {
-                                return Err("Division by zero".to_string());
+                                return Err(LutError::runtime_error("Division by zero", None));
                             }
                             Ok(Value::Float(f1 / *n2 as f64))
                         }
-                        _ => Err("Cannot divide non-numeric values".to_string()),
+                        _ => Err(LutError::runtime_error("Cannot divide non-numeric values", None)),
                     },
                     TokenType::Percent => match (&left_val, &right_val) {
                         (Value::Number(n1), Value::Number(n2)) => {
                             if *n2 == 0 {
-                                return Err("Modulo by zero".to_string());
+                                return Err(LutError::runtime_error("Modulo by zero", None));
                             }
                             Ok(Value::Number(n1 % n2))
                         }
                         (Value::Float(f1), Value::Float(f2)) => {
                             if *f2 == 0.0 {
-                                return Err("Modulo by zero".to_string());
+                                return Err(LutError::runtime_error("Modulo by zero", None));
                             }
                             Ok(Value::Float(f1 % f2))
                         }
                         (Value::Number(n1), Value::Float(f2)) => {
                             if *f2 == 0.0 {
-                                return Err("Modulo by zero".to_string());
+                                return Err(LutError::runtime_error("Modulo by zero", None));
                             }
                             Ok(Value::Float((*n1 as f64) % f2))
                         }
                         (Value::Float(f1), Value::Number(n2)) => {
                             if *n2 == 0 {
-                                return Err("Modulo by zero".to_string());
+                                return Err(LutError::runtime_error("Modulo by zero", None));
                             }
                             Ok(Value::Float(f1 % (*n2 as f64)))
                         }
-                        _ => Err("Cannot perform modulo on non-numeric values".to_string()),
+                        _ => Err(LutError::runtime_error("Cannot perform modulo on non-numeric values", None)),
                     },
 
                     // Comparison operators
@@ -1383,7 +1480,7 @@ impl Interpreter {
                             (Value::Boolean(b1), Value::Boolean(b2)) => {
                                 Ok(Value::Boolean(*b1 && !b2))
                             } // true > false
-                            _ => Err("Cannot compare different types".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot compare different types", None)),
                         }
                     }
                     TokenType::GreaterEqual => {
@@ -1400,7 +1497,7 @@ impl Interpreter {
                             (Value::Boolean(b1), Value::Boolean(b2)) => {
                                 Ok(Value::Boolean(b1 >= b2))
                             } // booleans can be compared
-                            _ => Err("Cannot compare different types".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot compare different types", None)),
                         }
                     }
                     TokenType::Less => {
@@ -1417,7 +1514,7 @@ impl Interpreter {
                             (Value::Boolean(b1), Value::Boolean(b2)) => {
                                 Ok(Value::Boolean(!b1 && *b2))
                             } // false < true
-                            _ => Err("Cannot compare different types".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot compare different types", None)),
                         }
                     }
                     TokenType::LessEqual => {
@@ -1434,21 +1531,21 @@ impl Interpreter {
                             (Value::Boolean(b1), Value::Boolean(b2)) => {
                                 Ok(Value::Boolean(b1 <= b2))
                             } // booleans can be compared
-                            _ => Err("Cannot compare different types".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot compare different types", None)),
                         }
                     }
 
-                    _ => Err(format!(
+                    _ => Err(LutError::runtime_error(format!(
                         "Invalid binary operator: {:?}",
                         operator.token_type
-                    )),
+                    ), None)),
                 }
             }
             Expr::Command { name, args } => {
                 match name.as_str() {
                     "number" | "-number" => {
                         if args.len() != 1 {
-                            return Err("Number command expects one argument".to_string());
+                            return Err(LutError::runtime_error("Number command expects one argument", None));
                         }
 
                         let arg = self.evaluate(&args[0])?;
@@ -1456,15 +1553,15 @@ impl Interpreter {
                             Value::Number(n) => Ok(Value::Number(n)),
                             Value::Text(s) => match s.parse::<i64>() {
                                 Ok(n) => Ok(Value::Number(n)),
-                                Err(_) => Err(format!("Cannot convert '{}' to a number", s)),
+                                Err(_) => Err(LutError::runtime_error(format!("Cannot convert '{}' to a number", s), None)),
                             },
                             Value::Boolean(b) => Ok(Value::Number(if b { 1 } else { 0 })),
-                            _ => Err("Expected number, text or boolean".to_string()),
+                            _ => Err(LutError::runtime_error("Expected number, text or boolean", None)),
                         }
                     }
                     "text" | "-text" => {
                         if args.len() != 1 {
-                            return Err("Text command expects one argument".to_string());
+                            return Err(LutError::runtime_error("Text command expects one argument", None));
                         }
 
                         let arg = self.evaluate(&args[0])?;
@@ -1475,12 +1572,12 @@ impl Interpreter {
                                 let text = if b { "true" } else { "false" }.to_string();
                                 Ok(self.make_text(text))
                             }
-                            _ => Err("Expected text, number or boolean".to_string()),
+                            _ => Err(LutError::runtime_error("Expected text, number or boolean", None)),
                         }
                     }
                     "fp" | "-fp" => {
                         if args.len() != 1 {
-                            return Err("Floating point command expects one argument".to_string());
+                            return Err(LutError::runtime_error("Floating point command expects one argument", None));
                         }
 
                         let arg = self.evaluate(&args[0])?;
@@ -1489,18 +1586,18 @@ impl Interpreter {
                             Value::Number(n) => Ok(Value::Float(n as f64)),
                             Value::Text(s) => match s.parse::<f64>() {
                                 Ok(f) => Ok(Value::Float(f)),
-                                Err(_) => Err(format!(
+                                Err(_) => Err(LutError::runtime_error(format!(
                                     "Cannot convert '{}' to a floating point number",
                                     s
-                                )),
+                                ), None)),
                             },
                             Value::Boolean(b) => Ok(Value::Float(if b { 1.0 } else { 0.0 })),
-                            _ => Err("Expected number, text or boolean".to_string()),
+                            _ => Err(LutError::runtime_error("Expected number, text or boolean", None)),
                         }
                     }
                     "bool" | "-bool" => {
                         if args.len() != 1 {
-                            return Err("Boolean command expects one argument".to_string());
+                            return Err(LutError::runtime_error("Boolean command expects one argument", None));
                         }
 
                         let arg = self.evaluate(&args[0])?;
@@ -1517,12 +1614,12 @@ impl Interpreter {
                                     Ok(Value::Boolean(!s.is_empty()))
                                 }
                             }
-                            _ => Err("Expected boolean, number or text".to_string()),
+                            _ => Err(LutError::runtime_error("Expected boolean, number or text", None)),
                         }
                     }
                     "hex" | "-hex" => {
                         if args.len() != 1 {
-                            return Err("Hex command expects one argument".to_string());
+                            return Err(LutError::runtime_error("Hex command expects one argument", None));
                         }
 
                         let arg = self.evaluate(&args[0])?;
@@ -1534,19 +1631,19 @@ impl Interpreter {
                                     s_ref.trim_start_matches("0x").trim_start_matches("0X");
                                 match i64::from_str_radix(s_trimmed, 16) {
                                     Ok(n) => Ok(Value::Number(n)),
-                                    Err(_) => Err(format!("Cannot parse '{}' as hexadecimal", s)),
+                                    Err(_) => Err(LutError::runtime_error(format!("Cannot parse '{}' as hexadecimal", s), None)),
                                 }
                             }
                             Value::Number(n) => {
                                 // Already a number, just return it
                                 Ok(Value::Number(n))
                             }
-                            _ => Err("Expected hexadecimal string".to_string()),
+                            _ => Err(LutError::runtime_error("Expected hexadecimal string", None)),
                         }
                     }
                     "bin" | "-bin" => {
                         if args.len() != 1 {
-                            return Err("Binary command expects one argument".to_string());
+                            return Err(LutError::runtime_error("Binary command expects one argument", None));
                         }
 
                         let arg = self.evaluate(&args[0])?;
@@ -1558,20 +1655,20 @@ impl Interpreter {
                                     s_ref.trim_start_matches("0b").trim_start_matches("0B");
                                 match i64::from_str_radix(s_trimmed, 2) {
                                     Ok(n) => Ok(Value::Number(n)),
-                                    Err(_) => Err(format!("Cannot parse '{}' as binary", s)),
+                                    Err(_) => Err(LutError::runtime_error(format!("Cannot parse '{}' as binary", s), None)),
                                 }
                             }
                             Value::Number(n) => {
                                 // Already a number, just return it
                                 Ok(Value::Number(n))
                             }
-                            _ => Err("Expected binary string".to_string()),
+                            _ => Err(LutError::runtime_error("Expected binary string", None)),
                         }
                     }
                     "array" | "-array" => {
                         // Check if we have at least one argument
                         if args.is_empty() {
-                            return Err("Array command expects at least one argument".to_string());
+                            return Err(LutError::runtime_error("Array command expects at least one argument", None));
                         }
 
                         // Check if the argument is an array literal
@@ -1621,10 +1718,9 @@ impl Interpreter {
                                     if first_row_size == 0 {
                                         first_row_size = inner_args.len();
                                     } else if inner_args.len() != first_row_size {
-                                        return Err(
-                                            "All rows in a 2D array must have the same length"
-                                                .to_string(),
-                                        );
+                                        return Err(LutError::runtime_error(
+                                            "All rows in a 2D array must have the same length", None
+                                        ));
                                     }
                                 }
                             }
@@ -1648,14 +1744,14 @@ impl Interpreter {
                                         }
                                         rows.push(row);
                                     } else {
-                                        return Err(
-                                            "Expected array command for 2D array row".to_string()
-                                        );
+                                        return Err(LutError::runtime_error(
+                                            "Expected array command for 2D array row", None
+                                        ));
                                     }
                                 } else {
-                                    return Err(
-                                        "Expected array command for 2D array row".to_string()
-                                    );
+                                    return Err(LutError::runtime_error(
+                                        "Expected array command for 2D array row", None
+                                    ));
                                 }
                             }
                             Ok(Value::Array2D(rows))
@@ -1671,10 +1767,10 @@ impl Interpreter {
                     }
                     "asc" | "-asc" => {
                         if args.len() != 1 {
-                            return Err(format!(
+                            return Err(LutError::runtime_error(format!(
                                 "Asc command expects one argument, got {}",
                                 args.len()
-                            ));
+                            ), None));
                         }
 
                         let arg = self.evaluate(&args[0])?;
@@ -1683,7 +1779,7 @@ impl Interpreter {
                                 if let Some(c) = std::char::from_u32(n as u32) {
                                     Ok(self.make_text(c.to_string()))
                                 } else {
-                                    Err(format!("Invalid ASCII code: {}", n))
+                                    Err(LutError::runtime_error(format!("Invalid ASCII code: {}", n), None))
                                 }
                             }
                             Value::Text(s) => {
@@ -1693,21 +1789,21 @@ impl Interpreter {
                                         if let Some(c) = std::char::from_u32(n as u32) {
                                             Ok(self.make_text(c.to_string()))
                                         } else {
-                                            Err(format!("Invalid ASCII code: {}", n))
+                                            Err(LutError::runtime_error(format!("Invalid ASCII code: {}", n), None))
                                         }
                                     }
-                                    Err(_) => Err(format!("Cannot convert '{}' to ASCII code", s)),
+                                    Err(_) => Err(LutError::runtime_error(format!("Cannot convert '{}' to ASCII code", s), None)),
                                 }
                             }
-                            _ => Err("Expected number for ASCII code".to_string()),
+                            _ => Err(LutError::runtime_error("Expected number for ASCII code", None)),
                         }
                     }
                     "-add" => {
                         if args.len() < 2 {
-                            return Err(format!(
+                            return Err(LutError::runtime_error(format!(
                                 "Add command expects at least two arguments, got {}",
                                 args.len()
-                            ));
+                            ), None));
                         }
 
                         let mut result = 0;
@@ -1718,23 +1814,23 @@ impl Interpreter {
                                 Value::Text(s) => match s.parse::<i64>() {
                                     Ok(n) => result += n,
                                     Err(_) => {
-                                        return Err(format!(
+                                        return Err(LutError::runtime_error(format!(
                                             "Cannot convert '{}' to a number for addition",
                                             s
-                                        ))
+                                        ), None))
                                     }
                                 },
-                                _ => return Err("Expected number for addition".to_string()),
+                                _ => return Err(LutError::runtime_error("Expected number for addition", None)),
                             }
                         }
                         Ok(Value::Number(result))
                     }
                     "-sub" => {
                         if args.len() < 2 {
-                            return Err(format!(
+                            return Err(LutError::runtime_error(format!(
                                 "Subtract command expects at least two arguments, got {}",
                                 args.len()
-                            ));
+                            ), None));
                         }
 
                         // Get the first value
@@ -1744,13 +1840,13 @@ impl Interpreter {
                             Value::Text(s) => match s.parse::<i64>() {
                                 Ok(n) => n,
                                 Err(_) => {
-                                    return Err(format!(
-                                        "Cannot convert '{}' to a number for subtraction",
-                                        s
+                                    return Err(LutError::runtime_error(
+                                        format!("Cannot convert '{}' to a number for subtraction", s),
+                                        None
                                     ))
                                 }
                             },
-                            _ => return Err("Expected number for subtraction".to_string()),
+                            _ => return Err(LutError::runtime_error("Expected number for subtraction", None)),
                         };
 
                         // Subtract all other values
@@ -1761,22 +1857,25 @@ impl Interpreter {
                                 Value::Text(s) => match s.parse::<i64>() {
                                     Ok(n) => result -= n,
                                     Err(_) => {
-                                        return Err(format!(
-                                            "Cannot convert '{}' to a number for subtraction",
-                                            s
+                                        return Err(LutError::runtime_error(
+                                            format!("Cannot convert '{}' to a number for subtraction", s),
+                                            None
                                         ))
                                     }
                                 },
-                                _ => return Err("Expected number for subtraction".to_string()),
+                                _ => return Err(LutError::runtime_error("Expected number for subtraction", None)),
                             }
                         }
                         Ok(Value::Number(result))
                     }
                     "-mul" => {
                         if args.len() < 2 {
-                            return Err(format!(
-                                "Multiply command expects at least two arguments, got {}",
-                                args.len()
+                            return Err(LutError::runtime_error(
+                                format!(
+                                    "Multiply command expects at least two arguments, got {}",
+                                    args.len()
+                                ),
+                                None
                             ));
                         }
 
@@ -1789,22 +1888,28 @@ impl Interpreter {
                                 Value::Text(s) => {
                                     match s.parse::<i64>() {
                                         Ok(n) => result *= n,
-                                        Err(_) => return Err(format!(
-                                            "Cannot convert '{}' to a number for multiplication",
-                                            s
+                                        Err(_) => return Err(LutError::runtime_error(
+                                            format!(
+                                                "Cannot convert '{}' to a number for multiplication",
+                                                s
+                                            ),
+                                            None
                                         )),
                                     }
                                 }
-                                _ => return Err("Expected number for multiplication".to_string()),
+                                _ => return Err(LutError::runtime_error("Expected number for multiplication", None)),
                             }
                         }
                         Ok(Value::Number(result))
                     }
                     "-div" => {
                         if args.len() < 2 {
-                            return Err(format!(
-                                "Divide command expects at least two arguments, got {}",
-                                args.len()
+                            return Err(LutError::runtime_error(
+                                format!(
+                                    "Divide command expects at least two arguments, got {}",
+                                    args.len()
+                                ),
+                                None
                             ));
                         }
 
@@ -1815,13 +1920,16 @@ impl Interpreter {
                             Value::Text(s) => match s.parse::<i64>() {
                                 Ok(n) => n,
                                 Err(_) => {
-                                    return Err(format!(
-                                        "Cannot convert '{}' to a number for division",
-                                        s
+                                    return Err(LutError::runtime_error(
+                                        format!(
+                                            "Cannot convert '{}' to a number for division",
+                                            s
+                                        ),
+                                        None
                                     ))
                                 }
                             },
-                            _ => return Err("Expected number for division".to_string()),
+                            _ => return Err(LutError::runtime_error("Expected number for division", None)),
                         };
 
                         // Divide by all other values
@@ -1830,34 +1938,40 @@ impl Interpreter {
                             match value {
                                 Value::Number(n) => {
                                     if n == 0 {
-                                        return Err("Division by zero".to_string());
+                                        return Err(LutError::runtime_error("Division by zero", None));
                                     }
                                     result /= n;
                                 }
                                 Value::Text(s) => match s.parse::<i64>() {
                                     Ok(n) => {
                                         if n == 0 {
-                                            return Err("Division by zero".to_string());
+                                            return Err(LutError::runtime_error("Division by zero", None));
                                         }
                                         result /= n;
                                     }
                                     Err(_) => {
-                                        return Err(format!(
-                                            "Cannot convert '{}' to a number for division",
-                                            s
+                                        return Err(LutError::runtime_error(
+                                            format!(
+                                                "Cannot convert '{}' to a number for division",
+                                                s
+                                            ),
+                                            None
                                         ))
                                     }
                                 },
-                                _ => return Err("Expected number for division".to_string()),
+                                _ => return Err(LutError::runtime_error("Expected number for division", None)),
                             }
                         }
                         Ok(Value::Number(result))
                     }
                     "-mod" => {
                         if args.len() != 2 {
-                            return Err(format!(
-                                "Modulo command expects exactly two arguments, got {}",
-                                args.len()
+                            return Err(LutError::runtime_error(
+                                format!(
+                                    "Modulo command expects exactly two arguments, got {}",
+                                    args.len()
+                                ),
+                                None
                             ));
                         }
 
@@ -1868,13 +1982,16 @@ impl Interpreter {
                             Value::Text(s) => match s.parse::<i64>() {
                                 Ok(n) => n,
                                 Err(_) => {
-                                    return Err(format!(
-                                        "Cannot convert '{}' to a number for modulo",
-                                        s
+                                    return Err(LutError::runtime_error(
+                                        format!(
+                                            "Cannot convert '{}' to a number for modulo",
+                                            s
+                                        ),
+                                        None
                                     ))
                                 }
                             },
-                            _ => return Err("Expected number for modulo".to_string()),
+                            _ => return Err(LutError::runtime_error("Expected number for modulo", None)),
                         };
 
                         // Get the right operand
@@ -1884,26 +2001,32 @@ impl Interpreter {
                             Value::Text(s) => match s.parse::<i64>() {
                                 Ok(n) => n,
                                 Err(_) => {
-                                    return Err(format!(
-                                        "Cannot convert '{}' to a number for modulo",
-                                        s
+                                    return Err(LutError::runtime_error(
+                                        format!(
+                                            "Cannot convert '{}' to a number for modulo",
+                                            s
+                                        ),
+                                        None
                                     ))
                                 }
                             },
-                            _ => return Err("Expected number for modulo".to_string()),
+                            _ => return Err(LutError::runtime_error("Expected number for modulo", None)),
                         };
 
                         if right == 0 {
-                            return Err("Modulo by zero".to_string());
+                            return Err(LutError::runtime_error("Modulo by zero", None));
                         }
 
                         Ok(Value::Number(left % right))
                     }
                     "get" | "-get" => {
                         if args.len() != 2 {
-                            return Err(format!(
-                                "Get command expects two arguments (array and index), got {}",
-                                args.len()
+                            return Err(LutError::runtime_error(
+                                format!(
+                                    "Get command expects two arguments (array and index), got {}",
+                                    args.len()
+                                ),
+                                None
                             ));
                         }
 
@@ -1920,22 +2043,25 @@ impl Interpreter {
                                 if idx < arr.len() {
                                     Ok(arr[idx].clone())
                                 } else {
-                                    Err(format!(
-                                        "Array index out of bounds: {} (length: {})",
-                                        idx,
-                                        arr.len()
+                                    Err(LutError::runtime_error(
+                                        format!(
+                                            "Array index out of bounds: {} (length: {})",
+                                            idx,
+                                            arr.len()
+                                        ),
+                                        None
                                     ))
                                 }
                             }
                             // Invalid index types
-                            (Value::Array(_), _) => Err("Array index must be a number".to_string()),
+                            (Value::Array(_), _) => Err(LutError::runtime_error("Array index must be a number", None)),
                             // Invalid array types
-                            (_, _) => Err("First argument to get must be an array".to_string()),
+                            (_, _) => Err(LutError::runtime_error("First argument to get must be an array", None)),
                         }
                     }
                     "get2d" | "-get2d" => {
                         if args.len() != 3 {
-                            return Err(format!("Get2d command expects three arguments (2D array, row, column), got {}", args.len()));
+                            return Err(LutError::runtime_error(format!("Get2d command expects three arguments (2D array, row, column), got {}", args.len()), None));
                         }
 
                         // Get the 2D array
@@ -1958,36 +2084,42 @@ impl Interpreter {
                                     if col < row_arr.len() {
                                         Ok(row_arr[col].clone())
                                     } else {
-                                        Err(format!(
-                                            "Column index out of bounds: {} (row length: {})",
-                                            col,
-                                            row_arr.len()
+                                        Err(LutError::runtime_error(
+                                            format!(
+                                                "Column index out of bounds: {} (row length: {})",
+                                                col,
+                                                row_arr.len()
+                                            ),
+                                            None
                                         ))
                                     }
                                 } else {
-                                    Err(format!(
-                                        "Row index out of bounds: {} (array height: {})",
-                                        row,
-                                        arr.len()
+                                    Err(LutError::runtime_error(
+                                        format!(
+                                            "Row index out of bounds: {} (array height: {})",
+                                            row,
+                                            arr.len()
+                                        ),
+                                        None
                                     ))
                                 }
                             }
                             // Invalid index types
                             (Value::Array2D(_), _, _) => {
-                                Err("Array indices must be numbers".to_string())
+                                Err(LutError::runtime_error("Array indices must be numbers", None))
                             }
                             // Invalid array types
                             (_, _, _) => {
-                                Err("First argument to get2d must be a 2D array".to_string())
+                                Err(LutError::runtime_error("First argument to get2d must be a 2D array", None))
                             }
                         }
                     }
                     "length" | "-length" => {
                         if args.len() != 1 {
-                            return Err(format!(
+                            return Err(LutError::runtime_error(format!(
                                 "Length command expects one argument, got {}",
                                 args.len()
-                            ));
+                            ), None));
                         }
 
                         let value = self.evaluate(&args[0])?;
@@ -1996,15 +2128,15 @@ impl Interpreter {
                             Value::Array(arr) => Ok(Value::Number(arr.len() as i64)),
                             Value::Array2D(arr) => Ok(Value::Number(arr.len() as i64)), // Returns number of rows
                             Value::Text(s) => Ok(Value::Number(s.len() as i64)),
-                            _ => Err("Cannot get length of non-array/non-text value".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot get length of non-array/non-text value", None)),
                         }
                     }
                     "width" | "-width" => {
                         if args.len() != 1 {
-                            return Err(format!(
+                            return Err(LutError::runtime_error(format!(
                                 "Width command expects one argument, got {}",
                                 args.len()
-                            ));
+                            ), None));
                         }
 
                         let value = self.evaluate(&args[0])?;
@@ -2018,10 +2150,10 @@ impl Interpreter {
                                     Ok(Value::Number(arr[0].len() as i64))
                                 }
                             }
-                            _ => Err("Cannot get width of non-2D array".to_string()),
+                            _ => Err(LutError::runtime_error("Cannot get width of non-2D array", None)),
                         }
                     }
-                    _ => Err(format!("Unknown command: {}", name)),
+                    _ => Err(LutError::runtime_error(format!("Unknown command: {}", name), None)),
                 }
             }
         };
@@ -2030,7 +2162,7 @@ impl Interpreter {
     }
 }
 
-pub fn run(source: &str) -> Result<(), String> {
+pub fn run(source: &str) -> Result<(), LutError> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -2039,12 +2171,20 @@ pub fn run(source: &str) -> Result<(), String> {
 
     let mut interpreter = Interpreter::new();
     interpreter.interpret(statements)?;
+    
+    // Try to find and call the main function after interpreting all statements
+    if let Some(func) = interpreter.functions.get("main") {
+        if let Value::Function(_) = Value::Function(Rc::clone(func)) {
+            // Call the main function with no arguments
+            interpreter.call_function("main", &[])?;
+        }
+    }
 
     Ok(())
 }
 
 // Run with silent mode (no output), useful for benchmarking
-pub fn run_silent(source: &str) -> Result<(), String> {
+pub fn run_silent(source: &str) -> Result<(), LutError> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -2053,6 +2193,14 @@ pub fn run_silent(source: &str) -> Result<(), String> {
 
     let mut interpreter = Interpreter::with_silent_mode(true);
     interpreter.interpret(statements)?;
+    
+    // Try to find and call the main function after interpreting all statements
+    if let Some(func) = interpreter.functions.get("main") {
+        if let Value::Function(_) = Value::Function(Rc::clone(func)) {
+            // Call the main function with no arguments
+            interpreter.call_function("main", &[])?;
+        }
+    }
 
     Ok(())
 }

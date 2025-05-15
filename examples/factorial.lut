@@ -9,17 +9,22 @@ func pub factorial { n : number ! } [
     ]
 ]
 
--- More intensive version - calculate multiple factorials repeatedly
-iterations : 100000  -- Increased iterations for more substantial work
-max_factorial : 20   -- Calculate factorial up to this number
-result : 0
-
-print { 'Running ', $iterations, ' factorial calculations' }
-
-for { i : 0, $i + 1, $i < $iterations } [
-    -- Calculate a different factorial each time
-    n : $i % $max_factorial + 1  -- Values 1 to max_factorial
-    result : call { factorial, $n }
+-- Main function as entry point
+func pub main {} [
+    -- Set benchmark parameters
+    iterations : 100000  -- Increased iterations for more substantial work
+    max_factorial : 20   -- Calculate factorial up to this number
+    result : 0
+    
+    print { 'Running ', $iterations, ' factorial calculations' }
+    
+    for { i : 0, $i + 1, $i < $iterations } [
+        -- Calculate a different factorial each time
+        n : $i % $max_factorial + 1  -- Values 1 to max_factorial
+        result : call { factorial, $n }
+    ]
+    
+    print { 'Final factorial result: ', $result }
+    
+    'ok'
 ]
-
-print { 'Final factorial result: ', $result }

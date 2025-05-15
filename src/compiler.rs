@@ -1,5 +1,6 @@
 use crate::lexer::{Lexer, TokenType};
 use crate::parser::{Expr, FunctionParam, Parser, Stmt};
+use crate::error_reporting::LutError;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -122,11 +123,14 @@ pub struct LLVMCompiler<'ctx> {
 
 impl<'ctx> LLVMCompiler<'ctx> {
     // Helper function to handle LLVM errors more gracefully
-    fn handle_llvm_err<T, E>(&self, result: Result<T, E>, operation: &str) -> Result<T, String>
+    fn handle_llvm_err<T, E>(&self, result: Result<T, E>, operation: &str) -> Result<T, LutError>
     where
         E: std::fmt::Display
     {
-        result.map_err(|e| format!("LLVM error during {}: {}", operation, e))
+        result.map_err(|e| LutError::compiler_error(
+            format!("LLVM error during {}: {}", operation, e),
+            None
+        ))
     }
 
     pub fn new(context: &'ctx Context, module_name: &str) -> Self {
@@ -216,7 +220,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
     }
     
     // Compile all statements and create a binary
-    pub fn compile(&mut self, statements: Vec<Stmt>) -> Result<(), String> {
+    pub fn compile(&mut self, statements: Vec<Stmt>) -> Result<(), LutError> {
         let _main_func = self.create_main_function();
         
         // Compile all statements
@@ -231,14 +235,17 @@ impl<'ctx> LLVMCompiler<'ctx> {
         
         // Verify the module
         if let Err(err) = self.module.verify() {
-            return Err(format!("Module verification error: {}", err.to_string()));
+            return Err(LutError::compiler_error(
+                format!("Module verification error: {}", err.to_string()),
+                None
+            ));
         }
         
         Ok(())
     }
     
     // Compile a function definition
-    fn compile_function(&mut self, name: String, is_public: bool, parameters: Vec<FunctionParam>, body: Vec<Stmt>) -> Result<FunctionValue<'ctx>, String> {
+    fn compile_function(&mut self, name: String, is_public: bool, parameters: Vec<FunctionParam>, body: Vec<Stmt>) -> Result<FunctionValue<'ctx>, LutError> {
         // Create parameter types
         let mut param_types = Vec::with_capacity(parameters.len());
         for _ in &parameters {
@@ -319,11 +326,11 @@ impl<'ctx> LLVMCompiler<'ctx> {
             unsafe {
                 function.delete();
             }
-            Err("Function verification failed".to_string())
+            Err(LutError::compiler_error("Function verification failed", None))
         }
     }
     
-    fn compile_statement(&mut self, stmt: Stmt) -> Result<(), String> {
+    fn compile_statement(&mut self, stmt: Stmt) -> Result<(), LutError> {
         match stmt {
             Stmt::Function { name, is_public, parameters, body } => {
                 self.compile_function(name, is_public, parameters, body)?;
@@ -337,7 +344,10 @@ impl<'ctx> LLVMCompiler<'ctx> {
                         // Store the new value in the existing variable
                         self.builder.build_store(*ptr, value).unwrap();
                     } else {
-                        return Err(format!("Variable '{}' referenced before declaration", name));
+                        return Err(LutError::compiler_error(
+                            format!("Variable '{}' referenced before declaration", name),
+                            None
+                        ));
                     }
                 } else {
                     // This is a new variable declaration
@@ -376,7 +386,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             let ptr = self.create_pointer_alloca(&name);
                             (ptr, VariableType::String)
                         },
-                        _ => return Err("Unsupported variable type".to_string())
+                        _ => return Err(LutError::compiler_error("Unsupported variable type", None))
                     };
 
                     self.builder.build_store(ptr, value).unwrap();
@@ -403,7 +413,10 @@ impl<'ctx> LLVMCompiler<'ctx> {
                         // Print newline
                         self.create_print_string("\\n");
                     },
-                    _ => return Err(format!("Unknown command in LLVM compiler: {}", name)),
+                    _ => return Err(LutError::compiler_error(
+                        format!("Unknown command in LLVM compiler: {}", name),
+                        None
+                    )),
                 }
             },
             Stmt::Print(exprs) => {
@@ -446,7 +459,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             "ifcond"
                         ).unwrap()
                     },
-                    _ => return Err("Expected integer condition in if statement".to_string())
+                    _ => return Err(LutError::compiler_error("Expected integer condition in if statement", None))
                 };
 
                 // Create the conditional branch instruction based on the condition
@@ -663,7 +676,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                 "while_cond"
                             ).unwrap()
                         },
-                        _ => return Err("Expected integer condition in while loop".to_string())
+                        _ => return Err(LutError::compiler_error("Expected integer condition in while loop", None))
                     };
 
                     // Conditional branch: if condition is true, go to body, otherwise exit
@@ -737,7 +750,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                         let ptr = self.create_pointer_alloca(name);
                                         (ptr, VariableType::String)
                                     },
-                                    _ => return Err("Unsupported variable type".to_string())
+                                    _ => return Err(LutError::compiler_error("Unsupported variable type", None))
                                 };
 
                                 // Store the value in the variable
@@ -782,7 +795,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             "for_cond"
                         ).unwrap()
                     },
-                    _ => return Err("Expected integer condition in for loop".to_string())
+                    _ => return Err(LutError::compiler_error("Expected integer condition in for loop", None))
                 };
 
                 // Conditional branch: if condition is true, go to body, otherwise exit
@@ -828,7 +841,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                     // Store the new value
                                     self.builder.build_store(*ptr, value).unwrap();
                                 } else {
-                                    return Err(format!("Undefined variable in for loop update: {}", name));
+                                    return Err(LutError::compiler_error(format!("Undefined variable in for loop update: {}", name), None));
                                 }
                             } else {
                                 // Just evaluate it normally
@@ -850,7 +863,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                         // Store the new value
                                         self.builder.build_store(*ptr, result).unwrap();
                                     } else {
-                                        return Err(format!("Undefined variable in for loop update: {}", actual_name));
+                                        return Err(LutError::compiler_error(format!("Undefined variable in for loop update: {}", actual_name), None));
                                     }
                                 } else {
                                     // Just evaluate it normally
@@ -885,7 +898,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     let unreachable_block = self.context.append_basic_block(current_function, "after_break");
                     self.builder.position_at_end(unreachable_block);
                 } else {
-                    return Err("Break statement outside of loop".to_string());
+                    return Err(LutError::compiler_error("Break statement outside of loop", None));
                 }
             },
             Stmt::Continue => {
@@ -899,7 +912,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     let unreachable_block = self.context.append_basic_block(current_function, "after_continue");
                     self.builder.position_at_end(unreachable_block);
                 } else {
-                    return Err("Continue statement outside of loop".to_string());
+                    return Err(LutError::compiler_error("Continue statement outside of loop", None));
                 }
             }
         }
@@ -907,14 +920,17 @@ impl<'ctx> LLVMCompiler<'ctx> {
         Ok(())
     }
     
-    fn compile_expression(&mut self, expr: Expr) -> Result<BasicValueEnum<'ctx>, String> {
+    fn compile_expression(&mut self, expr: Expr) -> Result<BasicValueEnum<'ctx>, LutError> {
         match expr {
             Expr::FunctionCall { name, arguments } => {
                 // Clone the function reference to avoid borrowing issues
                 let function_clone = if let Some(function) = self.functions.get(&name) {
                     *function
                 } else {
-                    return Err(format!("Undefined function: {}", name));
+                    return Err(LutError::compiler_error(
+                        format!("Undefined function: {}", name),
+                        None
+                    ));
                 };
                 
                 // Compile the arguments
@@ -926,11 +942,14 @@ impl<'ctx> LLVMCompiler<'ctx> {
                 
                 // Check that we have the right number of arguments
                 if compiled_args.len() != function_clone.count_params() as usize {
-                    return Err(format!(
-                        "Function {} takes {} arguments, but {} were provided",
-                        name,
-                        function_clone.count_params(),
-                        compiled_args.len()
+                    return Err(LutError::compiler_error(
+                        format!(
+                            "Function {} takes {} arguments, but {} were provided",
+                            name,
+                            function_clone.count_params(),
+                            compiled_args.len()
+                        ),
+                        None
                     ));
                 }
                 
@@ -966,7 +985,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                 // Convert condition to boolean (0 or 1)
                 let condition_int = match condition_val {
                     BasicValueEnum::IntValue(int_val) => int_val,
-                    _ => return Err("Expected integer value for ternary condition".to_string())
+                    _ => return Err(LutError::compiler_error("Expected integer value for ternary condition", None))
                 };
 
                 // Compare condition with 0 to get a boolean value
@@ -1024,7 +1043,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                         ]);
                         Ok(phi.as_basic_value())
                     },
-                    _ => Err("Ternary branches must return the same type".to_string())
+                    _ => Err(LutError::compiler_error("Ternary branches must return the same type", None))
                 }
             },
             Expr::VariableRef(name) => {
@@ -1062,10 +1081,16 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             }
                         }
                     } else {
-                        Err(format!("Undefined variable: {}", var_name))
+                        Err(LutError::compiler_error(
+                            format!("Undefined variable: {}", var_name),
+                            None
+                        ))
                     }
                 } else {
-                    Err(format!("Invalid variable reference: {}", name))
+                    Err(LutError::compiler_error(
+                        format!("Invalid variable reference: {}", name),
+                        None
+                    ))
                 }
             },
             Expr::NumberLiteral(value) => {
@@ -1113,10 +1138,16 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             ).unwrap();
                             Ok(result.into())
                         },
-                        _ => Err(format!("Unsupported unary operator: {:?}", operator.token_type))
+                        _ => Err(LutError::compiler_error(
+                            format!("Unsupported unary operator: {:?}", operator.token_type),
+                            Some(operator.line)
+                        ))
                     }
                 } else {
-                    Err("Expected integer value for unary operation".to_string())
+                    Err(LutError::compiler_error(
+                        "Expected integer value for unary operation",
+                        Some(operator.line)
+                    ))
                 }
             },
             Expr::Binary { left, operator, right } => {
@@ -1134,7 +1165,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             return Ok(value); // Return the assigned value
                         } else {
                             // This is handled in the declaration part, should not happen here
-                            return Err(format!("Variable '{}' not found for assignment", name));
+                            return Err(LutError::compiler_error(format!("Variable '{}' not found for assignment", name), None));
                         }
                     }
                 }
@@ -1394,7 +1425,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                         let result_ext = self.builder.build_int_z_extend(result, self.i64_type, "zext").unwrap();
                         Ok(result_ext.into())
                     },
-                    _ => Err(format!("Binary operator not yet implemented: {:?}", operator.token_type))
+                    _ => Err(LutError::compiler_error(format!("Binary operator not yet implemented: {:?}", operator.token_type), Some(operator.line)))
                 }
             },
             Expr::ArrayLiteral(elements) => {
@@ -1452,7 +1483,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                 match name.as_str() {
                     "fp" | "-fp" => {
                         if args.len() != 1 {
-                            return Err("Floating point command expects one argument".to_string());
+                            return Err(LutError::compiler_error("Floating point command expects one argument", None));
                         }
 
                         // Compile the argument expression
@@ -1474,7 +1505,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
 
                                 Ok(result.try_as_basic_value().left().unwrap())
                             },
-                            _ => Err("Cannot convert value to floating point".to_string())
+                            _ => Err(LutError::compiler_error("Cannot convert value to floating point", None))
                         }
                     },
                     "array" | "-array" => {
@@ -1549,7 +1580,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     },
                     "hex" | "-hex" => {
                         if args.len() != 1 {
-                            return Err("Hex command expects one argument".to_string());
+                            return Err(LutError::compiler_error("Hex command expects one argument", None));
                         }
 
                         // Compile the argument expression - for now we just treat it as a number
@@ -1558,7 +1589,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     },
                     "bin" | "-bin" => {
                         if args.len() != 1 {
-                            return Err("Binary command expects one argument".to_string());
+                            return Err(LutError::compiler_error("Binary command expects one argument", None));
                         }
 
                         // Compile the argument expression - for now we just treat it as a number
@@ -1567,7 +1598,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     },
                     "text" | "-text" => {
                         if args.len() != 1 {
-                            return Err("Text command expects one argument".to_string());
+                            return Err(LutError::compiler_error("Text command expects one argument", None));
                         }
 
                         // If the argument is already a string literal, just return that
@@ -1606,14 +1637,14 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                         // Result is a string (pointer)
                                         Ok(buffer.into())
                                     },
-                                    _ => Err("Cannot convert value to text".to_string())
+                                    _ => Err(LutError::compiler_error("Cannot convert value to text", None))
                                 }
                             }
                         }
                     },
                     "bool" | "-bool" => {
                         if args.len() != 1 {
-                            return Err("Boolean command expects one argument".to_string());
+                            return Err(LutError::compiler_error("Boolean command expects one argument", None));
                         }
 
                         // Compile the argument expression
@@ -1669,12 +1700,12 @@ impl<'ctx> LLVMCompiler<'ctx> {
 
                                 Ok(result.into())
                             },
-                            _ => Err("Cannot convert value to boolean".to_string())
+                            _ => Err(LutError::compiler_error("Cannot convert value to boolean", None))
                         }
                     },
                     "number" | "-number" => {
                         if args.len() != 1 {
-                            return Err("Number command expects one argument".to_string());
+                            return Err(LutError::compiler_error("Number command expects one argument", None));
                         }
                         
                         // Compile the argument expression
@@ -1699,12 +1730,12 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                 // Result is an integer
                                 Ok(int_result)
                             },
-                            _ => Err("Cannot convert value to number".to_string())
+                            _ => Err(LutError::compiler_error("Cannot convert value to number", None))
                         }
                     },
                     "asc" | "-asc" => {
                         if args.len() != 1 {
-                            return Err("Asc command expects one argument".to_string());
+                            return Err(LutError::compiler_error("Asc command expects one argument", None));
                         }
                         
                         // Compile the argument expression
@@ -1742,10 +1773,10 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                 
                                 Ok(buffer.into())
                             },
-                            _ => Err("Asc command expects an integer argument".to_string())
+                            _ => Err(LutError::compiler_error("Asc command expects an integer argument", None))
                         }
                     },
-                    _ => Err(format!("Command expression not implemented: {}", name))
+                    _ => Err(LutError::compiler_error(format!("Command expression not implemented: {}", name), None))
                 }
             }
         }
@@ -1904,7 +1935,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
         heap_ptr
     }
     
-    fn print_value(&mut self, value: BasicValueEnum<'ctx>) -> Result<(), String> {
+    fn print_value(&mut self, value: BasicValueEnum<'ctx>) -> Result<(), LutError> {
         // Create a unique printf call id to avoid name conflicts
         let call_id = format!("printf_call_{}", self.module.get_globals().count());
 
@@ -1943,20 +1974,23 @@ impl<'ctx> LLVMCompiler<'ctx> {
 
                 Ok(())
             },
-            _ => Err("Unsupported value type for printing".to_string())
+            _ => Err(LutError::compiler_error("Unsupported value type for printing", None))
         }
     }
     
     // Write the module to a file
-    pub fn write_to_file(&self, filename: &str) -> Result<(), String> {
+    pub fn write_to_file(&self, filename: &str) -> Result<(), LutError> {
         if let Err(e) = self.module.print_to_file(filename) {
-            return Err(format!("Error writing LLVM IR to file: {}", e.to_string()));
+            return Err(LutError::compiler_error(
+                format!("Error writing LLVM IR to file: {}", e.to_string()),
+                None
+            ));
         }
         Ok(())
     }
     
     // JIT compile and execute the module
-    pub fn jit_compile_and_run(&self) -> Result<(), String> {
+    pub fn jit_compile_and_run(&self) -> Result<(), LutError> {
         // Create JIT execution engine with better error message
         let execution_engine = self.handle_llvm_err(
             self.module.create_jit_execution_engine(OptimizationLevel::Default),
@@ -1975,7 +2009,10 @@ impl<'ctx> LLVMCompiler<'ctx> {
 
             // Check if the program ended with an error code
             if result != 0 {
-                return Err(format!("Program exited with non-zero status code: {}", result));
+                return Err(LutError::runtime_error(
+                    format!("Program exited with non-zero status code: {}", result),
+                    None
+                ));
             }
         }
 
@@ -1983,7 +2020,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
     }
     
     // Create a native executable file
-    pub fn create_executable(&self, output_filename: &str) -> Result<(), String> {
+    pub fn create_executable(&self, output_filename: &str) -> Result<(), LutError> {
         // Get the default target triple
         let target_triple = TargetMachine::get_default_triple();
         println!("Targeting: {}", target_triple.to_string());
@@ -2002,7 +2039,10 @@ impl<'ctx> LLVMCompiler<'ctx> {
             OptimizationLevel::Default,
             RelocMode::Default,
             CodeModel::Default,
-        ).ok_or_else(|| "Failed to create target machine: no machine for target triple".to_string())?;
+        ).ok_or_else(|| LutError::compiler_error(
+            "Failed to create target machine: no machine for target triple",
+            None
+        ))?;
 
         // Set the data layout for the module
         self.module.set_data_layout(&target_machine.get_target_data().get_data_layout());
@@ -2010,9 +2050,12 @@ impl<'ctx> LLVMCompiler<'ctx> {
 
         // Verify the module is valid with detailed error information
         if let Err(err) = self.module.verify() {
-            return Err(format!(
-                "Module verification error: {}. This may indicate a type mismatch or malformed IR.",
-                err.to_string()
+            return Err(LutError::compiler_error(
+                format!(
+                    "Module verification error: {}. This may indicate a type mismatch or malformed IR.",
+                    err.to_string()
+                ),
+                None
             ));
         }
 
@@ -2035,7 +2078,10 @@ impl<'ctx> LLVMCompiler<'ctx> {
             .arg(output_filename)
             .arg(&object_filename)
             .status()
-            .map_err(|e| format!("Error executing linker (cc): {}. Make sure you have a C compiler installed.", e))?;
+            .map_err(|e| LutError::compiler_error(
+                format!("Error executing linker (cc): {}. Make sure you have a C compiler installed.", e),
+                None
+            ))?;
 
         #[cfg(target_os = "linux")]
         let linking_result = Command::new("cc")
@@ -2043,7 +2089,10 @@ impl<'ctx> LLVMCompiler<'ctx> {
             .arg(output_filename)
             .arg(&object_filename)
             .status()
-            .map_err(|e| format!("Error executing linker (cc): {}. Make sure you have a C compiler installed.", e))?;
+            .map_err(|e| LutError::compiler_error(
+                format!("Error executing linker (cc): {}. Make sure you have a C compiler installed.", e),
+                None
+            ))?;
 
         #[cfg(target_os = "windows")]
         let linking_result = Command::new("cl")
@@ -2051,14 +2100,20 @@ impl<'ctx> LLVMCompiler<'ctx> {
             .arg(output_filename)
             .arg(&object_filename)
             .status()
-            .map_err(|e| format!("Error executing linker (cl): {}. Make sure you have Visual Studio or the MSVC toolchain installed.", e))?;
+            .map_err(|e| LutError::compiler_error(
+                format!("Error executing linker (cl): {}. Make sure you have Visual Studio or the MSVC toolchain installed.", e),
+                None
+            ))?;
 
         // Check if linking succeeded with improved error details
         if !linking_result.success() {
             let error_code = linking_result.code().unwrap_or(-1);
-            return Err(format!(
-                "Linking failed with exit code {}. This may be due to missing libraries or incompatible object formats.",
-                error_code
+            return Err(LutError::compiler_error(
+                format!(
+                    "Linking failed with exit code {}. This may be due to missing libraries or incompatible object formats.",
+                    error_code
+                ),
+                None
             ));
         }
 
@@ -2069,14 +2124,18 @@ impl<'ctx> LLVMCompiler<'ctx> {
 
             // Get metadata with improved error message
             let metadata = fs::metadata(output_filename)
-                .map_err(|e| format!("Failed to get file metadata for '{}': {}", output_filename, e))?;
+                .map_err(|e| LutError::io_error(
+                    format!("Failed to get file metadata for '{}': {}", output_filename, e)
+                ))?;
 
             let mut perms = metadata.permissions();
             perms.set_mode(0o755); // rwxr-xr-x
 
             // Set permissions with improved error message
             fs::set_permissions(output_filename, perms)
-                .map_err(|e| format!("Failed to set executable permissions on '{}': {}", output_filename, e))?;
+                .map_err(|e| LutError::io_error(
+                    format!("Failed to set executable permissions on '{}': {}", output_filename, e)
+                ))?;
         }
 
         println!("Generated executable: {}", output_filename);
@@ -2085,7 +2144,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
 }
 
 // Top-level compile function that takes source code and outputs binary
-pub fn compile(source: &str, file_path: &str, silent_mode: bool) -> Result<(), String> {
+pub fn compile(source: &str, file_path: &str, silent_mode: bool) -> Result<(), LutError> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -2124,11 +2183,11 @@ pub fn compile(source: &str, file_path: &str, silent_mode: bool) -> Result<(), S
 
 // Backward compatibility wrapper
 pub fn compile_default(source: &str, file_path: &str) -> Result<(), String> {
-    compile(source, file_path, false)
+    compile(source, file_path, false).map_err(|e| e.to_string())
 }
 
 // JIT compile and run function - used for development/testing
-pub fn jit_compile_and_run(source: &str, file_path: &str, silent_mode: bool) -> Result<(), String> {
+pub fn jit_compile_and_run(source: &str, file_path: &str, silent_mode: bool) -> Result<(), LutError> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -2162,5 +2221,5 @@ pub fn jit_compile_and_run(source: &str, file_path: &str, silent_mode: bool) -> 
 
 // Backward compatibility wrapper
 pub fn jit_compile_and_run_default(source: &str, file_path: &str) -> Result<(), String> {
-    jit_compile_and_run(source, file_path, false)
+    jit_compile_and_run(source, file_path, false).map_err(|e| e.to_string())
 }

@@ -1,4 +1,5 @@
 use crate::lexer::{Token, TokenType};
+use crate::error_reporting::LutError;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
@@ -137,6 +138,8 @@ impl Parser {
         if self.match_token(TokenType::Func) {
             return self.function_declaration();
         }
+        
+        // Check for main function using the format: func pub main {} [ ... ]
 
         if self.match_token(TokenType::Break) {
             return Ok(Stmt::Break);
@@ -655,6 +658,9 @@ impl Parser {
         } else {
             return Err("Expected function name after visibility modifier".to_string());
         };
+        
+        // Special handling for main function
+        let is_main = name == "main";
 
         // Expect left brace for parameter list
         self.consume(TokenType::LeftBrace, "Expected '{' after function name")?;
@@ -662,45 +668,51 @@ impl Parser {
         // Parse parameters
         let mut parameters = Vec::new();
         
-        // Parse parameters until we see right brace
-        if !self.check(TokenType::RightBrace) {
-            loop {
-                // Parameter name
-                let param_name = if self.match_token(TokenType::Register) {
-                    self.previous().lexeme.clone()
-                } else {
-                    return Err("Expected parameter name in function declaration".to_string());
-                };
+        // For main function, we expect an empty parameter list
+        if is_main {
+            // Expect right brace after empty parameter list
+            self.consume(TokenType::RightBrace, "Expected '}' after empty parameter list for main function")?;
+        } else {
+            // Regular function - parse parameters until we see right brace
+            if !self.check(TokenType::RightBrace) {
+                loop {
+                    // Parameter name
+                    let param_name = if self.match_token(TokenType::Register) {
+                        self.previous().lexeme.clone()
+                    } else {
+                        return Err("Expected parameter name in function declaration".to_string());
+                    };
 
-                // Expect colon
-                self.consume(TokenType::Colon, "Expected ':' after parameter name")?;
+                    // Expect colon
+                    self.consume(TokenType::Colon, "Expected ':' after parameter name")?;
 
-                // Parameter type
-                let param_type = if self.match_token(TokenType::Command) {
-                    self.previous().lexeme.clone()
-                } else {
-                    return Err("Expected parameter type after ':'".to_string());
-                };
+                    // Parameter type
+                    let param_type = if self.match_token(TokenType::Command) {
+                        self.previous().lexeme.clone()
+                    } else {
+                        return Err("Expected parameter type after ':'".to_string());
+                    };
 
-                // Check for ! (uninitialized parameter)
-                let initialized = !self.match_token(TokenType::Not);
+                    // Check for ! (uninitialized parameter)
+                    let initialized = !self.match_token(TokenType::Not);
 
-                // Add the parameter
-                parameters.push(FunctionParam {
-                    name: param_name,
-                    param_type,
-                    initialized,
-                });
+                    // Add the parameter
+                    parameters.push(FunctionParam {
+                        name: param_name,
+                        param_type,
+                        initialized,
+                    });
 
-                // If we see a comma, continue parsing parameters
-                if !self.match_token(TokenType::Comma) {
-                    break;
+                    // If we see a comma, continue parsing parameters
+                    if !self.match_token(TokenType::Comma) {
+                        break;
+                    }
                 }
             }
+            
+            // Expect right brace after parameter list
+            self.consume(TokenType::RightBrace, "Expected '}' after parameter list")?;
         }
-
-        // Expect right brace after parameter list
-        self.consume(TokenType::RightBrace, "Expected '}' after parameter list")?;
 
         // Expect left bracket for function body
         self.consume(TokenType::LeftBracket, "Expected '[' to begin function body")?;

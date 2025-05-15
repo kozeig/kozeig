@@ -119,8 +119,12 @@ If you encounter issues, please file a bug report so the community can investiga
 
 ```lut
 -- Hello World in Lut
-greeting : { text 'Hello, World!' }
-print { $greeting }
+func pub main {} [
+    greeting : { text 'Hello, World!' }
+    print { $greeting }
+    
+    'ok'  -- Return value similar to 'return 0' in C
+]
 ```
 
 ### Running a Program
@@ -170,9 +174,14 @@ func pub add { a : number !, b : number ! } [
     $a + $b  -- Last expression is returned
 ]
 
--- Call the function
-result : call { add, 5, 7 }
-print { 'The sum is: ', $result }  -- Outputs: The sum is: 12
+-- Main function is the entry point
+func pub main {} [
+    -- Call the function
+    result : call { add, 5, 7 }
+    print { 'The sum is: ', $result }  -- Outputs: The sum is: 12
+    
+    'ok'
+]
 ```
 
 ### Arithmetic Operations
@@ -216,6 +225,7 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 
 ### Completed
 - ✅ **Functions**: Definition and calling of functions with parameters and return values, including recursive functions
+- ✅ **Main Function Entry Point**: Standard format with `func pub main {}` as program entry
 - ✅ **Core Arithmetic Operations**: Addition, subtraction, multiplication, division, and modulo
 - ✅ **Basic Control Flow**: If/else conditionals and boolean operations
 - ✅ **Native Compilation**: LLVM-based compiler with JIT support

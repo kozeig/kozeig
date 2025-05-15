@@ -6,6 +6,7 @@ mod lexer;
 mod parser;
 mod interpreter;
 mod compiler;
+mod error_reporting;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -89,7 +90,8 @@ fn main() {
                             }
                         },
                         Err(e) => {
-                            eprintln!("Compilation error: {}", e);
+                            // Print enhanced error with source context
+                            error_reporting::print_error_with_context(&e, &source);
                             process::exit(1);
                         }
                     }
@@ -116,7 +118,8 @@ fn main() {
                         match interpreter::run_silent(&source) {
                             Ok(_) => (),
                             Err(e) => {
-                                eprintln!("Runtime error: {}", e);
+                                // Print enhanced error with source context
+                                error_reporting::print_error_with_context(&e, &source);
                                 process::exit(1);
                             }
                         }
@@ -124,7 +127,8 @@ fn main() {
                         match interpreter::run(&source) {
                             Ok(_) => (),
                             Err(e) => {
-                                eprintln!("Runtime error: {}", e);
+                                // Print enhanced error with source context
+                                error_reporting::print_error_with_context(&e, &source);
                                 process::exit(1);
                             }
                         }
@@ -152,7 +156,8 @@ fn main() {
                     match compiler::jit_compile_and_run(&source, file_path, silent_mode) {
                         Ok(_) => (), // The JIT execution already happened
                         Err(e) => {
-                            eprintln!("JIT compilation error: {}", e);
+                            // Print enhanced error with source context
+                            error_reporting::print_error_with_context(&e, &source);
                             process::exit(1);
                         }
                     }

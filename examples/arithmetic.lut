@@ -1,47 +1,51 @@
-@@ This program demonstrates arithmetic operations in lut
+-- This program demonstrates arithmetic operations in lut
 
-@@ Define some numbers
-a : -number 42
-b : -number 7
-
-@@ Addition
-result_add : $a + $b
-addition : -text 'Addition: '
-equals : -text ' = '
--print $addition, $a, ' + ', $b, $equals, $result_add
-
-@@ Subtraction
-result_sub : $a - $b
-subtraction : -text 'Subtraction: '
--print $subtraction, $a, ' - ', $b, $equals, $result_sub
-
-@@ Multiplication
-result_mul : $a * $b
-multiplication : -text 'Multiplication: '
--print $multiplication, $a, ' * ', $b, $equals, $result_mul
-
-@@ Division
-result_div : $a / $b
-division : -text 'Division: '
--print $division, $a, ' / ', $b, $equals, $result_div
-
-@@ Modulo
-result_mod : $a % $b
-modulo : -text 'Modulo: '
--print $modulo, $a, ' % ', $b, $equals, $result_mod
-
-@@ Compound expressions with operator precedence
-@@ Multiplication has higher precedence than addition
-compound1 : $a + $b * 2
-compound_text1 : -text 'Compound (a + b * 2): '
--print $compound_text1, $compound1
-
-@@ Using parentheses to override precedence
-compound2 : ($a + $b) * 2
-compound_text2 : -text 'Compound ((a + b) * 2): '
--print $compound_text2, $compound2
-
-@@ More complex expression
-compound3 : ($a + $b * 3) / (2 - 1) % 10
-compound_text3 : -text 'Complex: (a + b * 3) / (2 - 1) % 10 = '
--print $compound_text3, $compound3
+func pub main {} [
+    -- Define some numbers
+    a : 42
+    b : 7
+    
+    -- Addition
+    result_add : $a + $b
+    addition : { text 'Addition: ' }
+    equals : { text ' = ' }
+    print { $addition, $a, ' + ', $b, $equals, $result_add }
+    
+    -- Subtraction
+    result_sub : $a - $b
+    subtraction : { text 'Subtraction: ' }
+    print { $subtraction, $a, ' - ', $b, $equals, $result_sub }
+    
+    -- Multiplication
+    result_mul : $a * $b
+    multiplication : { text 'Multiplication: ' }
+    print { $multiplication, $a, ' * ', $b, $equals, $result_mul }
+    
+    -- Division
+    result_div : $a / $b
+    division : { text 'Division: ' }
+    print { $division, $a, ' / ', $b, $equals, $result_div }
+    
+    -- Modulo
+    result_mod : $a % $b
+    modulo : { text 'Modulo: ' }
+    print { $modulo, $a, ' % ', $b, $equals, $result_mod }
+    
+    -- Compound expressions with operator precedence
+    -- Multiplication has higher precedence than addition
+    compound1 : $a + $b * 2
+    compound_text1 : { text 'Compound (a + b * 2): ' }
+    print { $compound_text1, $compound1 }
+    
+    -- Using parentheses to override precedence
+    compound2 : ($a + $b) * 2
+    compound_text2 : { text 'Compound ((a + b) * 2): ' }
+    print { $compound_text2, $compound2 }
+    
+    -- More complex expression
+    compound3 : ($a + $b * 3) / (2 - 1) % 10
+    compound_text3 : { text 'Complex: (a + b * 3) / (2 - 1) % 10 = ' }
+    print { $compound_text3, $compound3 }
+    
+    'ok'
+]
