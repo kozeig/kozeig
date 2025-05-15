@@ -1,15 +1,18 @@
 # Lüt Language Performance Benchmarks
 
-This document contains benchmark results comparing the performance of Lüt language's three execution modes:
-- **Interpreter mode** (`lut run`)
-- **Compiler mode** (`lut build`)
-- **JIT mode** (`lut jit`)
+This document contains comprehensive benchmark results comparing the performance of Lüt language's three execution modes:
+- **Interpreter mode** (`lut run`) - Interprets Lüt code directly
+- **Compiler mode** (`lut build`) - Compiles Lüt to LLVM IR, then native code
+- **JIT mode** (`lut jit`) - Just-in-time compilation using LLVM
 
 ## Benchmark Setup
 
 The benchmark tests the performance of recursive factorial calculations in a loop:
 
-```lua
+```lut
+-- Benchmark for factorial computation
+-- This will test recursive function calls with more intensive computation
+
 -- Recursive factorial function
 func pub factorial { n : number ! } [
     -- Base case: 0! and 1! are both 1
@@ -21,59 +24,150 @@ func pub factorial { n : number ! } [
     ]
 ]
 
--- More intensive version - calculate multiple factorials repeatedly
-iterations : 100000  -- Increased iterations for more substantial work
-max_factorial : 20   -- Calculate factorial up to this number
-result : 0
+-- Main function as entry point
+func pub main {} [
+    -- Print header
+    print { 'Factorial Benchmark' }
+    print { '-----------------' }
 
-print { 'Running ', $iterations, ' factorial calculations' }
+    -- Calculate various factorials as a benchmark
+    print { 'factorial(1) = ', call { factorial, 1 } }
+    print { 'factorial(5) = ', call { factorial, 5 } }
+    print { 'factorial(10) = ', call { factorial, 10 } }
+    print { 'factorial(12) = ', call { factorial, 12 } }
+    print { 'factorial(15) = ', call { factorial, 15 } }
 
-for { i : 0, $i + 1, $i < $iterations } [
-    -- Calculate a different factorial each time
-    n : $i % $max_factorial + 1  -- Values 1 to max_factorial
-    result : call { factorial, $n }
+    -- More intensive calculation - calculate factorial(20) 500000 times
+    print { '\nRunning intensive calculation...' }
+    count : 0
+    target : 500000
+
+    -- Simple accumulation loop
+    total : 0
+    while { $count < $target } [
+        f20 : call { factorial, 20 }
+        total : $total + $f20
+        count : $count + 1
+    ]
+
+    -- Print final result
+    print { 'Completed ', $target, ' calculations of factorial(20)' }
+    print { 'Sum of results: ', $total }
+
+    'ok'  -- Return value using the 'ok' syntax
 ]
-
-print { 'Final factorial result: ', $result }
 ```
 
-Each execution mode was run 50 times to get statistically significant results (After about 50 the results are basically the same so there was no need to run 100, 1000 times etc. // I will continue to run more intensive benchmarks in the future).
+Each execution mode was run 50 times to get statistically significant results.
 
-## Performance Results
+## Execution Time Comparison
 
 The benchmark results show significant performance differences between the three modes:
 
-| Mode        | Average Time (s) | Min Time (s) | Max Time (s) |
-|-------------|------------------|--------------|--------------|
-| Interpreter | 0.3749           | 0.37         | 0.52         |
-| Compiler    | 0.0012           | 0.00         | 0.01         |
-| JIT         | 0.0029           | 0.00         | 0.01         |
+![Execution Time Comparison](benchmark_time_all.png)
 
-## Performance Comparison
+### Compiled Mode Comparison
+
+When comparing just the compiled modes (excluding the interpreter), we can see the small differences between the compiler and JIT modes:
+
+![Compiled Mode Comparison](benchmark_time_compiled.png)
+
+## Performance Speedup
 
 The compiler and JIT modes provide significant speedups compared to the interpreter:
 
-- **Compiler mode**: ~306x faster than the interpreter
-- **JIT mode**: ~131x faster than the interpreter
+![Speedup Comparison](speedup_comparison.png)
 
-## Visual Results
+## Memory and CPU Usage
 
-![Performance Comparison](benchmark_comparison_enhanced.png)
+### Memory Usage
+
+Memory usage across all three execution modes:
+
+![Memory Usage Comparison](benchmark_memory.png)
+
+### CPU Usage
+
+CPU utilization during execution:
+
+![CPU Usage Comparison](benchmark_cpu.png)
+
+### Time Breakdown
+
+Breakdown of execution time into user and system time:
+
+![Time Breakdown](benchmark_time_breakdown.png)
+
+## Execution Time Distribution
+
+Statistical distribution of execution times across multiple runs:
+
+![Time Distribution](benchmark_distribution_boxplot.png)
+
+![Time Distribution KDE](benchmark_kde.png)
+
+## Resource Utilization Analysis
+
+### Memory vs. Execution Time
+
+Relationship between memory usage and execution time:
+
+![Memory vs Execution Time](memory_vs_time.png)
+
+### CPU vs. Execution Time
+
+Relationship between CPU usage and execution time:
+
+![CPU vs Execution Time](cpu_vs_time.png)
+
+### Memory vs. CPU Usage
+
+Relationship between memory and CPU usage:
+
+![Memory vs CPU](memory_vs_cpu.png)
+
+### Resource Efficiency
+
+Comparison of relative efficiency in resource utilization:
+
+![Resource Efficiency](resource_efficiency.png)
+
+## Performance Metrics
+
+| Mode        | Mean Time (s) | Min Time (s) | Max Time (s) | Mean Memory (KB) | CPU Usage (%) |
+|-------------|---------------|--------------|--------------|------------------|---------------|
+| Interpreter | ~3.74         | ~3.57        | ~4.13        | ~1140            | ~0.38         |
+| Compiler    | ~0.126        | ~0.122       | ~0.131       | ~1141            | ~0.02         |
+| JIT         | ~0.127        | ~0.121       | ~0.146       | ~1156            | ~0.01         |
 
 ## Running the Benchmarks
 
 To run the benchmarks yourself:
 
-1. Ensure you have Python 3 with pandas and matplotlib installed
-2. Run the benchmark script: `./benchmark.sh`
-3. Generate the plots: `python3 benchmark.py`
+1. Ensure you have Python 3 with pandas, matplotlib, and seaborn installed
+   ```bash
+   pip install pandas matplotlib seaborn
+   ```
 
-The benchmark script performs 50 runs of each execution mode and saves the results to CSV files. The plotting script generates visualization of the performance differences.
+2. Run the benchmark script to collect performance metrics:
+   ```bash
+   ./benchmark.sh
+   ```
+
+3. The script will automatically generate visualizations after collecting the data
 
 ## Conclusions
 
-- Both the compiler and JIT modes offer dramatic performance improvements over the interpreter mode
-- The compiler mode is currently faster than the JIT mode, likely due to the overhead of JIT compilation
-- For factorial calculations (and likely similar recursive functions), the compiled mode offers the best performance
+- **Interpreter vs Compiled**: Both compiled modes (compiler and JIT) offer approximately 30x performance improvements over the interpreter mode
+- **Resource Usage**: All three modes have comparable memory usage, but the interpreter consumes more CPU resources
+- **Execution Time Stability**: The compiled modes show more consistent execution times with less variation between runs
+- **Compiler vs JIT**: In this benchmark, the compiler and JIT modes perform similarly, with the compiler being slightly faster on average
 
 These benchmarks demonstrate the value of Lüt's multi-mode execution approach, allowing users to choose between interpreter flexibility and compiled performance based on their needs.
+
+## Future Work
+
+- Extended benchmarks across a wider range of operations
+- Comparison across different hardware architectures
+- Optimization opportunities for specific execution modes
+- Measuring the startup time costs vs. execution time for different program sizes

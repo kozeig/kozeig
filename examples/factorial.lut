@@ -11,20 +11,13 @@ func pub factorial { n : number ! } [
 
 -- Main function as entry point
 func pub main {} [
-    -- Set benchmark parameters
-    iterations : 100000  -- Increased iterations for more substantial work
-    max_factorial : 20   -- Calculate factorial up to this number
-    result : 0
+    -- Calculate and print factorial of 5
+    result : call { factorial, 5 }
+    print { 'factorial(5) = ', $result }
     
-    print { 'Running ', $iterations, ' factorial calculations' }
+    -- Calculate another factorial
+    result : call { factorial, 10 }
+    print { 'factorial(10) = ', $result }
     
-    for { i : 0, $i + 1, $i < $iterations } [
-        -- Calculate a different factorial each time
-        n : $i % $max_factorial + 1  -- Values 1 to max_factorial
-        result : call { factorial, $n }
-    ]
-    
-    print { 'Final factorial result: ', $result }
-    
-    'ok'
+    'ok' -- Return value using the 'ok' syntax
 ]

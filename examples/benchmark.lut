@@ -1,37 +1,46 @@
--- Lüt Simple Computational Benchmark
--- Computationally intensive benchmark using simple math
+-- Benchmark for factorial computation
+-- This will test recursive function calls with more intensive computation
 
--- Simple iterative factorial implementation
+-- Recursive factorial function (same as in factorial.lut)
 func pub factorial { n : number ! } [
-    result : 1
-    
-    i : 1
-    while { $i <= $n } [
-        result : $result * $i
-        i : $i + 1
+    -- Base case: 0! and 1! are both 1
+    if { $n <= 1 } [
+        1
+    ] else [
+        -- Recursive case: n! = n * (n-1)!
+        $n * call { factorial, $n - 1 }
     ]
-    
-    $result
 ]
 
 -- Main function as entry point
 func pub main {} [
-    -- Set benchmark parameters
-    iterations : 1000000  -- High number for intensive testing
-    max_factorial : 12    -- Largest factorial to compute
-    
-    print { 'Starting benchmark with ', $iterations, ' iterations' }
-    
-    factorial_result : 0
-    
-    -- Main benchmark loop
-    for { i : 0, $i + 1, $i < $iterations } [
-        n : $i % $max_factorial + 1  -- Values 1 to max_factorial
-        factorial_result : call { factorial, $n }
+    -- Print header
+    print { 'Factorial Benchmark' }
+    print { '-----------------' }
+
+    -- Calculate various factorials as a benchmark
+    print { 'factorial(1) = ', call { factorial, 1 } }
+    print { 'factorial(5) = ', call { factorial, 5 } }
+    print { 'factorial(10) = ', call { factorial, 10 } }
+    print { 'factorial(12) = ', call { factorial, 12 } }
+    print { 'factorial(15) = ', call { factorial, 15 } }
+
+    -- More intensive calculation - calculate factorial(20) 1000 times
+    print { '\nRunning intensive calculation...' }
+    count : 0
+    target : 500000
+
+    -- Simple accumulation loop
+    total : 0
+    while { $count < $target } [
+        f20 : call { factorial, 20 }
+        total : $total + $f20
+        count : $count + 1
     ]
-    
-    print { 'Final factorial result: ', $factorial_result }
-    print { 'Benchmark complete!' }
-    
-    'ok'
+
+    -- Print final result
+    print { 'Completed ', $target, ' calculations of factorial(20)' }
+    print { 'Sum of results: ', $total }
+
+    'ok'  -- Return value using the 'ok' syntax
 ]

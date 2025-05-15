@@ -4,3 +4,4 @@ Cargo.lock
 *.c
 *.exe
 CLAUDE.md
+.claude

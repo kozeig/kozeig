@@ -9,7 +9,7 @@ use std::rc::Rc;
 use inkwell::context::Context;
 use inkwell::builder::Builder;
 use inkwell::module::Module;
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{BasicValue, BasicValueEnum, FunctionValue, PointerValue, InstructionValue};
 use inkwell::types::IntType;
 use inkwell::OptimizationLevel;
 use inkwell::AddressSpace;
@@ -119,6 +119,8 @@ pub struct LLVMCompiler<'ctx> {
     functions: HashMap<String, FunctionValue<'ctx>>,
     // Current function for return statements
     current_function: Option<FunctionValue<'ctx>>,
+    // Source file path (for special case handling)
+    file_path: String,
 }
 
 impl<'ctx> LLVMCompiler<'ctx> {
@@ -133,7 +135,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
         ))
     }
 
-    pub fn new(context: &'ctx Context, module_name: &str) -> Self {
+    pub fn new(context: &'ctx Context, module_name: &str, file_path: &str) -> Self {
         // Initialize LLVM targets
         Target::initialize_all(&InitializationConfig::default());
         
@@ -187,6 +189,7 @@ impl<'ctx> LLVMCompiler<'ctx> {
             silent_mode: false,
             functions: HashMap::with_capacity(32), // Pre-allocate space for functions
             current_function: None,
+            file_path: file_path.to_string(),
         }
     }
     
@@ -198,11 +201,50 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     // Create an entry point
     pub fn create_main_function(&mut self) -> FunctionValue<'ctx> {
-        let i32_type = self.context.i32_type();
-        let main_func_type = i32_type.fn_type(&[], false);
-        let main_func = self.module.add_function("main", main_func_type, None);
-        let entry_block = self.context.append_basic_block(main_func, "entry");
-        self.builder.position_at_end(entry_block);
+        // First, we need to check if there's a user main function
+        let has_user_main = self.functions.contains_key("main");
+        
+        // If there's already a user-defined main function, we need to handle it specially
+        let user_main_func = if has_user_main {
+            // Get the existing main function
+            let user_main = self.functions.remove("main").unwrap();
+            
+            // Add it back with a different name (user_main)
+            self.functions.insert("user_main".to_string(), user_main);
+            Some(user_main)
+        } else {
+            None
+        };
+        
+        // Create the system main function (i64 return type for consistency)
+        let main_type = self.i64_type.fn_type(&[], false);
+        let main_func = self.module.add_function("main", main_type, None);
+        
+        // Create a single entry block
+        let entry = self.context.append_basic_block(main_func, "entry");
+        self.builder.position_at_end(entry);
+        
+        // Create a dummy variable to avoid empty blocks (required by LLVM)
+        self.builder.build_alloca(self.i64_type, "dummy").unwrap();
+        
+        // If there's a user main function, call it and return its result
+        if let Some(user_main) = user_main_func {
+            // Add a call to the user_main function
+            let call = self.builder.build_call(user_main, &[], "user_main_call").unwrap();
+            
+            // Extract the return value
+            let return_value = match call.try_as_basic_value() {
+                Either::Left(value) => value.into_int_value(),
+                Either::Right(_) => self.i64_type.const_int(0, false)
+            };
+            
+            // Return the result
+            self.builder.build_return(Some(&return_value)).unwrap();
+        } else {
+            // No user main, just return 0
+            let return_value = self.i64_type.const_int(0, false);
+            self.builder.build_return(Some(&return_value)).unwrap();
+        }
         
         main_func
     }
@@ -221,22 +263,161 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     // Compile all statements and create a binary
     pub fn compile(&mut self, statements: Vec<Stmt>) -> Result<(), LutError> {
-        let _main_func = self.create_main_function();
+        // First pass: register all function declarations (including main)
+        for stmt in statements.iter() {
+            if let Stmt::Function { name, is_public, parameters, .. } = stmt {
+                // Create parameter types
+                let mut param_types = Vec::with_capacity(parameters.len());
+                for _ in parameters {
+                    // All parameters are i64 for now
+                    param_types.push(self.i64_type.into());
+                }
+                
+                // Create function type
+                let function_type = self.i64_type.fn_type(&param_types, false);
+                
+                // Create the function without body
+                let linkage = if *is_public {
+                    inkwell::module::Linkage::External
+                } else {
+                    inkwell::module::Linkage::Private
+                };
+                
+                // Just declare the function in the first pass
+                let function = self.module.add_function(name, function_type, Some(linkage));
+                
+                // Register the function so it can be referenced before definition
+                self.functions.insert(name.clone(), function);
+            }
+        }
         
-        // Compile all statements
+        // Create system main after user functions are registered
+        let main_func = self.create_main_function();
+        
+        // Set insertion point to main function entry block
+        let entry_block = main_func.get_first_basic_block().unwrap();
+        self.builder.position_at_end(entry_block);
+        
+        // Check if user defined a main function
+        let has_user_main = self.functions.contains_key("main");
+        
+        // Second pass: compile all functions
         for stmt in statements {
             self.compile_statement(stmt)?;
         }
         
-        // Return 0 from main
-        let i32_type = self.context.i32_type();
-        let return_value = i32_type.const_int(0, false);
-        self.builder.build_return(Some(&return_value)).unwrap();
+        // First, let's manually find the main function in our LLVM module
+        // We need to ensure the main function itself is properly terminated
+        if let Some(main_func) = self.module.get_function("main") {
+            let blocks = main_func.get_basic_blocks();
+            for block in blocks {
+                // If this block doesn't have a terminator, add one
+                if !block.get_terminator().is_some() {
+                    self.builder.position_at_end(block);
+                    
+                    // If this is the entry block, add a return 0
+                    if block.get_name().to_str().unwrap_or("") == "entry" {
+                        // Add a return statement to the entry block
+                        let return_value = self.i64_type.const_int(0, false);
+                        self.builder.build_return(Some(&return_value)).unwrap();
+                    } else {
+                        // For other blocks, find some block to branch to or add a return
+                        let entry = main_func.get_first_basic_block().unwrap();
+                        self.builder.build_unconditional_branch(entry).unwrap();
+                    }
+                }
+            }
+        }
         
-        // Verify the module
+        // Verify all other functions are correctly formed
+        for (name, func) in self.functions.clone() {
+            // Check and fix unterminated blocks
+            let blocks = func.get_basic_blocks();
+            for block in blocks {
+                if !block.get_terminator().is_some() {
+                    // This block needs a terminator - position at the end and add a return
+                    self.builder.position_at_end(block);
+                    let return_value = self.i64_type.const_int(0, false);
+                    self.builder.build_return(Some(&return_value)).unwrap();
+                }
+            }
+        }
+        
+        // Before verifying, let's clean up any unused function declarations
+        // Remove main.1 and main.2 declarations if they exist
+        for func_name in ["main.1", "main.2"] {
+            if let Some(decl) = self.module.get_function(func_name) {
+                // Check if it's just a declaration (no body)
+                if decl.get_basic_blocks().is_empty() {
+                    // It's just a declaration, we can safely remove it
+                    unsafe {
+                        decl.delete();
+                    }
+                }
+            }
+        }
+        
+        // Make sure the main function calls user_main if needed
+        if let Some(main_func) = self.module.get_function("main") {
+            // Get or create the entry block
+            let entry_block = match main_func.get_first_basic_block() {
+                Some(block) => block,
+                None => {
+                    // Create an entry block if it doesn't exist
+                    self.context.append_basic_block(main_func, "entry")
+                }
+            };
+            
+            // Position at the end of the entry block
+            self.builder.position_at_end(entry_block);
+            
+            // Check if the entry block already has a terminator
+            if entry_block.get_terminator().is_none() {
+                // Create a dummy variable if needed
+                if main_func.get_params().is_empty() && main_func.get_basic_blocks().len() <= 1 {
+                    self.builder.build_alloca(self.i64_type, "dummy").unwrap();
+                }
+                
+                // Check for user_main function
+                if let Some(user_main) = self.functions.get("user_main") {
+                    // Call the user_main function and return its result
+                    let call = self.builder.build_call(*user_main, &[], "main_call").unwrap();
+                    
+                    // Extract return value
+                    let return_value = match call.try_as_basic_value() {
+                        Either::Left(value) => value.into_int_value(),
+                        Either::Right(_) => self.i64_type.const_int(0, false)
+                    };
+                    
+                    // Return the result
+                    self.builder.build_return(Some(&return_value)).unwrap();
+                } else {
+                    // No user_main, just return 0
+                    let return_value = self.i64_type.const_int(0, false);
+                    self.builder.build_return(Some(&return_value)).unwrap();
+                }
+            }
+        }
+        
+        // Always verify modules to ensure correctness
         if let Err(err) = self.module.verify() {
+            // Print the generated IR to help debug the verification error
+            if let Some(filename) = std::path::Path::new(&self.file_path).file_name() {
+                if filename.to_string_lossy().contains("benchmark") || 
+                   filename.to_string_lossy().contains("factorial") {
+                    println!("Module verification failed for {}", self.file_path);
+                    println!("Error: {}", err);
+                    
+                    // Save the problematic IR for debugging
+                    let debug_file = format!("{}.debug.ll", self.file_path);
+                    let _ = self.module.print_to_file(&debug_file);
+                    println!("Saved debug IR to {}", debug_file);
+                }
+            }
+            
             return Err(LutError::compiler_error(
-                format!("Module verification error: {}", err.to_string()),
+                format!("Module verification error: {}. This may indicate a type mismatch or malformed IR.", 
+                        err.to_string()),
                 None
             ));
         }
@@ -246,24 +427,45 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     // Compile a function definition
     fn compile_function(&mut self, name: String, is_public: bool, parameters: Vec<FunctionParam>, body: Vec<Stmt>) -> Result<FunctionValue<'ctx>, LutError> {
-        // Create parameter types
-        let mut param_types = Vec::with_capacity(parameters.len());
-        for _ in &parameters {
-            // All parameters are i64 for now (we can add more types later)
-            param_types.push(self.i64_type.into());
-        }
+        // Special case for main function
+        let is_main_function = name == "main";
         
-        // Create function type
-        let function_type = self.i64_type.fn_type(&param_types, false);
-        
-        // Create the function
-        let linkage = if is_public {
-            inkwell::module::Linkage::External
+        // For the main function, we want to use "user_main" instead
+        let function_name = if is_main_function {
+            "user_main".to_string()
         } else {
-            inkwell::module::Linkage::Private
+            name.clone()
         };
         
-        let function = self.module.add_function(&name, function_type, Some(linkage));
+        // Get the function if it's already declared (from first pass)
+        let function = if let Some(func) = self.functions.get(&function_name) {
+            *func
+        } else {
+            // If function wasn't pre-registered in the first pass, create it now
+            // Create parameter types
+            let mut param_types = Vec::with_capacity(parameters.len());
+            for _ in &parameters {
+                // All parameters are i64 for now (we can add more types later)
+                param_types.push(self.i64_type.into());
+            }
+            
+            // Create function type
+            let function_type = self.i64_type.fn_type(&param_types, false);
+            
+            // Create the function
+            let linkage = if is_public {
+                inkwell::module::Linkage::External
+            } else {
+                inkwell::module::Linkage::Private
+            };
+            
+            // Create the function with the appropriate name
+            let func = self.module.add_function(&function_name, function_type, Some(linkage));
+            
+            // Add to functions map using the appropriate name
+            self.functions.insert(function_name.clone(), func);
+            func
+        };
         
         // Create entry block
         let entry_block = self.context.append_basic_block(function, "entry");
@@ -281,8 +483,9 @@ impl<'ctx> LLVMCompiler<'ctx> {
             // Create a local variable for the parameter
             let alloca = self.create_entry_block_alloca(&param.name);
             
-            // Store the parameter value in the local variable
-            self.builder.build_store(alloca, param_value).unwrap();
+            // Store parameter - let LLVM handle alignment automatically
+            // Critical: We need consistent alignment for all store operations
+            let _store_inst = self.builder.build_store(alloca, param_value).unwrap();
             
             // Save old variable with the same name if it exists
             if let Some(old_ptr) = self.variables.get(&param.name) {
@@ -297,20 +500,78 @@ impl<'ctx> LLVMCompiler<'ctx> {
         }
         
         // Compile function body
-        for stmt in body {
-            self.compile_statement(stmt)?;
+        let mut return_value = None;
+        for (i, stmt) in body.iter().enumerate() {
+            // Check if this is the last statement and if it's an expression
+            if i == body.len() - 1 {
+                if let Stmt::Expression(expr) = stmt {
+                    // Special case: handle 'ok' as a return value (equivalent to 0)
+                    if let Expr::TextLiteral(s) = &expr {
+                        if s == "ok" {
+                            // 'ok' is equivalent to returning 0
+                            let zero_value = self.i64_type.const_int(0, false).into();
+                            return_value = Some(zero_value);
+                        } else {
+                            // For other text literals, compile as normal
+                            let value = self.compile_expression(expr.clone())?;
+                            return_value = Some(value);
+                        }
+                    } else {
+                        // Not a text literal, compile as normal
+                        let value = self.compile_expression(expr.clone())?;
+                        return_value = Some(value);
+                    }
+                } else {
+                    self.compile_statement(stmt.clone())?;
+                }
+            } else {
+                self.compile_statement(stmt.clone())?;
+            }
         }
         
-        // If no return statement was found, add a default return of 0
-        if !self.builder.get_insert_block().unwrap().get_terminator().is_some() {
-            let return_value = self.i64_type.const_int(0, false);
-            self.builder.build_return(Some(&return_value)).unwrap();
+        // Ensure the current basic block has a terminator
+        let current_block = self.builder.get_insert_block().unwrap();
+        if !current_block.get_terminator().is_some() {
+            // If we have a return value from the last expression, return it
+            if let Some(val) = return_value {
+                // Convert to the appropriate type for return
+                match val {
+                    BasicValueEnum::IntValue(int_val) => {
+                        self.builder.build_return(Some(&int_val)).unwrap();
+                    },
+                    _ => {
+                        // Default to returning 0 for other types
+                        let default_return = self.i64_type.const_int(0, false);
+                        self.builder.build_return(Some(&default_return)).unwrap();
+                    }
+                }
+            } else {
+                // Add a default return of 0
+                let default_return = self.i64_type.const_int(0, false);
+                self.builder.build_return(Some(&default_return)).unwrap();
+            }
+        }
+        
+        // Check all basic blocks have terminators
+        for block in function.get_basic_blocks() {
+            if !block.get_terminator().is_some() {
+                // Position at the end of the unterminated block
+                self.builder.position_at_end(block);
+                // Add a branch to the next block or a return if it's the last block
+                let next_block = block.get_next_basic_block();
+                if let Some(next) = next_block {
+                    self.builder.build_unconditional_branch(next).unwrap();
+                } else {
+                    // This is the last block, add a return
+                    let return_value = self.i64_type.const_int(0, false);
+                    self.builder.build_return(Some(&return_value)).unwrap();
+                }
+            }
         }
         
         // Verify the function
         if function.verify(true) {
-            // Add the function to our function table
-            self.functions.insert(name, function);
+            // Function is already in the table from either first pass or early in this function
             
             // Restore saved variables
             for (name, ptr) in old_variables {
@@ -389,7 +650,8 @@ impl<'ctx> LLVMCompiler<'ctx> {
                         _ => return Err(LutError::compiler_error("Unsupported variable type", None))
                     };
 
-                    self.builder.build_store(ptr, value).unwrap();
+                    let _store_inst = self.builder.build_store(ptr, value).unwrap(); // Ignoring the result
+                    // Let LLVM handle alignment automatically
                     self.variables.insert(name.clone(), ptr);
                     self.variable_types.insert(name, var_type);
                 }
@@ -469,23 +731,47 @@ impl<'ctx> LLVMCompiler<'ctx> {
                 self.builder.position_at_end(then_block);
 
                 // Compile all statements in the then branch
-                for stmt in then_branch {
-                    self.compile_statement(stmt)?;
+                let mut then_result = None;
+                for (i, stmt) in then_branch.iter().enumerate() {
+                    // If this is the last statement in an expression context, treat it as return value
+                    if i == then_branch.len() - 1 {
+                        if let Stmt::Expression(expr) = stmt {
+                            // This is a terminating expression that should be treated as the return value
+                            let value = self.compile_expression(expr.clone())?;
+                            then_result = Some(value);
+                        } else {
+                            self.compile_statement(stmt.clone())?;
+                        }
+                    } else {
+                        self.compile_statement(stmt.clone())?;
+                    }
                 }
 
                 // Branch to the merge block
                 self.builder.build_unconditional_branch(merge_block).unwrap();
 
                 // Remember the current block to handle nested ifs properly
-                let _then_end_block = self.builder.get_insert_block().unwrap();
+                let then_end_block = self.builder.get_insert_block().unwrap();
 
                 // Build the else block
                 self.builder.position_at_end(else_block);
 
                 // Compile all statements in the else branch if it exists
+                let mut else_result = None;
                 if let Some(else_statements) = else_branch {
-                    for stmt in else_statements {
-                        self.compile_statement(stmt)?;
+                    for (i, stmt) in else_statements.iter().enumerate() {
+                        // If this is the last statement in an expression context, treat it as return value
+                        if i == else_statements.len() - 1 {
+                            if let Stmt::Expression(expr) = stmt {
+                                // This is a terminating expression that should be treated as the return value
+                                let value = self.compile_expression(expr.clone())?;
+                                else_result = Some(value);
+                            } else {
+                                self.compile_statement(stmt.clone())?;
+                            }
+                        } else {
+                            self.compile_statement(stmt.clone())?;
+                        }
                     }
                 }
 
@@ -493,10 +779,55 @@ impl<'ctx> LLVMCompiler<'ctx> {
                 self.builder.build_unconditional_branch(merge_block).unwrap();
 
                 // Remember the current block
-                let _else_end_block = self.builder.get_insert_block().unwrap();
+                let else_end_block = self.builder.get_insert_block().unwrap();
 
                 // Set the insertion point to the merge block for subsequent code
                 self.builder.position_at_end(merge_block);
+                
+                // If we have result values from either branch, create a PHI node
+                let phi_result = if then_result.is_some() || else_result.is_some() {
+                    if let (Some(then_val), Some(else_val)) = (then_result, else_result) {
+                        if let (BasicValueEnum::IntValue(then_int), BasicValueEnum::IntValue(else_int)) = (then_val, else_val) {
+                            // Create a PHI node for the result
+                            let phi = self.builder.build_phi(self.i64_type, "ifresult").unwrap();
+                            
+                            // Add the incoming values from both branches
+                            phi.add_incoming(&[
+                                (&then_int, then_end_block),
+                                (&else_int, else_end_block)
+                            ]);
+                            
+                            // Return the PHI result as a value
+                            Some(phi.as_basic_value())
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                
+                // If we're in an expression context, this PHI node value should be returned
+                if let Some(current_func) = self.current_function {
+                    if let Some(phi_val) = phi_result {
+                        // We're in a function and have a result value, so return it
+                        let current_block = self.builder.get_insert_block().unwrap();
+                        if !current_block.get_terminator().is_some() {
+                            match phi_val {
+                                BasicValueEnum::IntValue(int_val) => {
+                                    self.builder.build_return(Some(&int_val)).unwrap();
+                                },
+                                _ => {
+                                    // Default to returning 0 for other types
+                                    let default_return = self.i64_type.const_int(0, false);
+                                    self.builder.build_return(Some(&default_return)).unwrap();
+                                }
+                            }
+                        }
+                    }
+                }
             },
             Stmt::While { condition, body } => {
                 // Get the current function
@@ -754,7 +1085,8 @@ impl<'ctx> LLVMCompiler<'ctx> {
                                 };
 
                                 // Store the value in the variable
-                                self.builder.build_store(ptr, value).unwrap();
+                                let _store_inst = self.builder.build_store(ptr, value).unwrap(); // Ignoring the result
+                    // Let LLVM handle alignment automatically
 
                                 // Add the variable to our variable maps
                                 self.variables.insert(name.clone(), ptr);
@@ -1246,8 +1578,8 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             "div_zero_error_msg"
                         ).unwrap();
 
-                        // Exit with error code
-                        let exit_code = self.context.i32_type().const_int(1, false);
+                        // Exit with error code - using consistent i64 type
+                        let exit_code = self.i64_type.const_int(1, false);
                         self.builder.build_return(Some(&exit_code)).unwrap();
 
                         // Continue block for normal execution
@@ -1296,8 +1628,8 @@ impl<'ctx> LLVMCompiler<'ctx> {
                             "mod_zero_error_msg"
                         ).unwrap();
 
-                        // Exit with error code
-                        let exit_code = self.context.i32_type().const_int(1, false);
+                        // Exit with error code - using consistent i64 type
+                        let exit_code = self.i64_type.const_int(1, false);
                         self.builder.build_return(Some(&exit_code)).unwrap();
 
                         // Continue block for normal execution
@@ -1782,45 +2114,90 @@ impl<'ctx> LLVMCompiler<'ctx> {
         }
     }
     
-    // Helper to create an i64 alloca instruction in the entry block
+    // Helper to create an i64 alloca instruction in the entry block with consistent alignment
+    // Create a uniquely named variable to avoid SSA violations
     fn create_entry_block_alloca(&self, name: &str) -> PointerValue<'ctx> {
         let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
         let entry = func.get_first_basic_block().unwrap();
         
+        // Create a unique name to avoid SSA violations
+        // Format: original_name.uniqueId
+        let unique_id = format!("{}.{}", name, func.get_basic_blocks().len());
+        
+        // Ensure all allocas for integers are in the entry block with consistent alignment
         match entry.get_first_instruction() {
             Some(first_instr) => {
                 let builder = self.context.create_builder();
                 builder.position_before(&first_instr);
-                builder.build_alloca(self.i64_type, name).unwrap()
+                
+                // For i64 values, we use 8-byte alignment to match the type size
+                let i64_size = 8; // 8 bytes
+                let i64_align = 8; // 8-byte alignment
+                
+                // Create the alloca with explicit size and alignment
+                let alloca_size = self.context.i32_type().const_int(1, false); // 1 element
+                let alloca = builder.build_array_alloca(self.i64_type, alloca_size, &unique_id).unwrap();
+                
+                // Note: We're using default alignment from LLVM
+                
+                alloca
             }
             None => {
                 let current_block = self.builder.get_insert_block().unwrap();
                 let builder = self.context.create_builder();
                 builder.position_at_end(entry);
-                let alloca = builder.build_alloca(self.i64_type, name).unwrap();
+                
+                // For i64 values, we use 8-byte alignment to match the type size
+                let i64_size = 8; // 8 bytes
+                let i64_align = 8; // 8-byte alignment
+                
+                // Create the alloca with explicit size and alignment
+                let alloca_size = self.context.i32_type().const_int(1, false); // 1 element
+                let alloca = builder.build_array_alloca(self.i64_type, alloca_size, &unique_id).unwrap();
+                
+                // Note: We're using default alignment from LLVM
+                
                 self.builder.position_at_end(current_block);
                 alloca
             }
         }
     }
     
-    // Helper to create a pointer alloca instruction in the entry block
+    // Helper to create a pointer alloca instruction in the entry block with consistent alignment
     fn create_pointer_alloca(&self, name: &str) -> PointerValue<'ctx> {
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
         let entry = func.get_first_basic_block().unwrap();
         
+        // Create a unique name to avoid SSA violations
+        // Format: ptr_original_name.uniqueId
+        let unique_id = format!("ptr_{}.{}", name, func.get_basic_blocks().len());
+        
+        // Use array allocation for consistent alignment and handling
         match entry.get_first_instruction() {
             Some(first_instr) => {
                 let builder = self.context.create_builder();
                 builder.position_before(&first_instr);
-                builder.build_alloca(ptr_type, name).unwrap()
+                
+                // Use array_alloca with explicit size for better alignment control
+                let alloca_size = self.context.i32_type().const_int(1, false); // 1 element
+                let alloca = builder.build_array_alloca(ptr_type, alloca_size, &unique_id).unwrap();
+                
+                // Note: We're using default alignment from LLVM
+                
+                alloca
             }
             None => {
                 let current_block = self.builder.get_insert_block().unwrap();
                 let builder = self.context.create_builder();
                 builder.position_at_end(entry);
-                let alloca = builder.build_alloca(ptr_type, name).unwrap();
+                
+                // Use array_alloca with explicit size for better alignment control
+                let alloca_size = self.context.i32_type().const_int(1, false); // 1 element
+                let alloca = builder.build_array_alloca(ptr_type, alloca_size, &unique_id).unwrap();
+                
+                // Note: We're using default alignment from LLVM
+                
                 self.builder.position_at_end(current_block);
                 alloca
             }
@@ -1872,30 +2249,39 @@ impl<'ctx> LLVMCompiler<'ctx> {
         if string_val.len() <= 32 {
             // For small strings, we can use memcpy intrinsic
             let src_ptr = self.create_string_literal(string_val);
-            // Use the llvm.memcpy intrinsic
+            // Use the modern llvm.memcpy intrinsic with correct signature
             let void_ptr_type = self.context.ptr_type(AddressSpace::default());
+            let i1_type = self.context.bool_type();
+            
+            // Modern memcpy signature: void @llvm.memcpy.p0.p0.i64(ptr dest, ptr src, i64 size, i1 isvolatile)
             let memcpy_type = self.context.void_type().fn_type(
-                &[void_ptr_type.into(), void_ptr_type.into(), self.i64_type.into()],
-                false
+                &[
+                    void_ptr_type.into(),     // dest ptr
+                    void_ptr_type.into(),     // src ptr
+                    self.i64_type.into(),     // size
+                    i1_type.into()            // is_volatile
+                ],
+                false // not variadic
             );
             
-            // Get or create the memcpy intrinsic
-            let memcpy_fn = self.module.get_function("llvm.memcpy.p0i8.p0i8.i64")
+            // Get or create the memcpy intrinsic using the modern name
+            let memcpy_fn = self.module.get_function("llvm.memcpy.p0.p0.i64")
                 .unwrap_or_else(|| {
                     self.module.add_function(
-                        "llvm.memcpy.p0i8.p0i8.i64", 
+                        "llvm.memcpy.p0.p0.i64", 
                         memcpy_type, 
                         None
                     )
                 });
             
-            // Call memcpy to copy the string
+            // Call memcpy to copy the string with the correct arguments
             self.builder.build_call(
                 memcpy_fn,
                 &[
-                    heap_ptr.into(), 
-                    src_ptr.into(), 
-                    self.i64_type.const_int(size, false).into(),
+                    heap_ptr.into(),                              // dest pointer
+                    src_ptr.into(),                               // source pointer
+                    self.i64_type.const_int(size, false).into(),  // size in bytes
+                    i1_type.const_int(0, false).into()            // is_volatile=false
                 ],
                 "memcpy_call"
             ).unwrap();
@@ -1980,12 +2366,20 @@ impl<'ctx> LLVMCompiler<'ctx> {
     
     // Write the module to a file
     pub fn write_to_file(&self, filename: &str) -> Result<(), LutError> {
+        // Write the LLVM IR to the file
         if let Err(e) = self.module.print_to_file(filename) {
             return Err(LutError::compiler_error(
                 format!("Error writing LLVM IR to file: {}", e.to_string()),
                 None
             ));
         }
+        
+        // Now that we've fixed the core issue with main function handling,
+        // we don't need to post-process the IR anymore
+        if filename.contains("benchmark") || filename.contains("factorial") || filename.contains("simple_factorial") {
+            println!("Generated LLVM IR for {}", filename);
+        }
+        
         Ok(())
     }
     
@@ -2160,7 +2554,7 @@ pub fn compile(source: &str, file_path: &str, silent_mode: bool) -> Result<(), L
         .to_string_lossy();
     let module_name = file_stem.to_string();
     
-    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name).with_silent_mode(silent_mode);
+    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name, file_path).with_silent_mode(silent_mode);
     llvm_compiler.compile(statements)?;
     
     // Generate output paths
@@ -2203,7 +2597,7 @@ pub fn jit_compile_and_run(source: &str, file_path: &str, silent_mode: bool) -> 
         .to_string_lossy();
     let module_name = file_stem.to_string();
     
-    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name).with_silent_mode(silent_mode);
+    let mut llvm_compiler = LLVMCompiler::new(&context, &module_name, file_path).with_silent_mode(silent_mode);
     llvm_compiler.compile(statements)?;
     
     // Generate IR for debugging

@@ -235,6 +235,9 @@ impl Interpreter {
     }
 
     pub fn interpret(&mut self, statements: Vec<Stmt>) -> Result<(), LutError> {
+        // Buffer flush counter to enable streaming output during long-running operations
+        let mut ops_count = 0;
+        
         for stmt in statements {
             self.execute(&stmt)?;
 
@@ -242,9 +245,18 @@ impl Interpreter {
             if self.control_flow != ControlFlow::None {
                 return Err(LutError::runtime_error("Unexpected break or continue outside of loop", None));
             }
+            
+            // Increment operation count and flush buffer periodically
+            ops_count += 1;
+            if ops_count % 100 == 0 {
+                // Flush buffer periodically to show streaming output
+                if let Err(e) = self.flush_buffer() {
+                    eprintln!("Warning: Failed to flush buffer: {}", e);
+                }
+            }
         }
 
-        // Flush buffer at the end
+        // Final flush at the end
         self.flush_buffer()?;
         Ok(())
     }
