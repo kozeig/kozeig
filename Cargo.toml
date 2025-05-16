@@ -1,6 +1,6 @@
 [package]
 name = "kozeig"
-version = "0.5.0"
+version = "0.1.0"
 edition = "2021"
 authors = ["Jason Weiss <jason.awz2005@icloud.com>"]
 description = "Just a quirky little language with a lot of bold opinions"
