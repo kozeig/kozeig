@@ -1,0 +1,30 @@
+-- Temperature conversion library
+-- Provides functions to convert between Celsius, Fahrenheit, and Kelvin
+
+func pub CelsiusToFahrenheit { celsius : number ! } [
+    ($celsius * 9 / 5) + 32
+]
+
+func pub FahrenheitToCelsius { fahrenheit : number ! } [
+    ($fahrenheit - 32) * 5 / 9
+]
+
+func pub CelsiusToKelvin { celsius : number ! } [
+    $celsius + 273
+]
+
+func pub KelvinToCelsius { kelvin : number ! } [
+    $kelvin - 273
+]
+
+func pub FahrenheitToKelvin { fahrenheit : number ! } [
+    -- First convert to Celsius, then to Kelvin
+    temp_celsius : call { FahrenheitToCelsius, $fahrenheit }
+    call { CelsiusToKelvin, $temp_celsius }
+]
+
+func pub KelvinToFahrenheit { kelvin : number ! } [
+    -- First convert to Celsius, then to Fahrenheit
+    temp_celsius : call { KelvinToCelsius, $kelvin }
+    call { CelsiusToFahrenheit, $temp_celsius }
+]

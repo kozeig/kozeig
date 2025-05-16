@@ -7,7 +7,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}Lut Language Builder${NC}"
+echo -e "${GREEN}Kozeig Language Builder${NC}"
 echo "=========================="
 
 # Detect the user's OS
@@ -121,7 +121,7 @@ update_shell_profile() {
         else
             # Add the environment variable to the profile
             echo "" >> "$PROFILE_FILE"
-            echo "# Added by Lut Language build script" >> "$PROFILE_FILE"
+            echo "# Added by Kozeig Language build script" >> "$PROFILE_FILE"
             echo "export $ENV_VAR_NAME=\"$LLVM_PATH\"" >> "$PROFILE_FILE"
             echo "Added LLVM environment variable to $PROFILE_FILE"
             echo -e "${YELLOW}NOTE: You'll need to restart your terminal or run 'source $PROFILE_FILE' for the changes to take effect.${NC}"
@@ -147,15 +147,15 @@ if [[ "$LLVM_FOUND" == "true" ]]; then
     update_shell_profile
 
     # Build the project
-    echo -e "${GREEN}Building Lut language compiler...${NC}"
+    echo -e "${GREEN}Building Kozeig language compiler...${NC}"
     cargo build --release
 
     # Finish HIM *hya*
-    if [[ -f "./target/release/lut" ]]; then
+    if [[ -f "./target/release/koze" ]]; then
         echo -e "${GREEN}Build successful!${NC}"
         echo ""
         echo "You can now use the Lut compiler with:"
-        echo -e "${YELLOW}./target/release/lut build yourprogram.lut${NC}"
+        echo -e "${YELLOW}./target/release/koze build yourprogram.ko${NC}"
     else
         echo -e "${RED}Build failed. Check the output above for errors.${NC}"
         exit 1

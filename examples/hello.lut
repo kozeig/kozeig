@@ -1,8 +1,0 @@
--- Hey!
-
-func pub main {} [
-    greeting : { text 'Hello from lut!' }
-    print { $greeting }
-    
-    'ok'
-]

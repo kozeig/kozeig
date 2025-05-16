@@ -1247,6 +1247,20 @@ impl<'ctx> LLVMCompiler<'ctx> {
                     return Err(LutError::compiler_error("Continue statement outside of loop", None));
                 }
             }
+            Stmt::Import { functions, module_path } => {
+                // For now, we'll handle imports at compile time by adding the imported functions
+                // to our function table. In the interpreter, we already handle this dynamically.
+                // For the compiler, we'll need to implement a similar resolution mechanism.
+                
+                // TODO: Implement compilation for imported functions
+                // This would involve:
+                // 1. Loading the module (using DependencyManager)
+                // 2. Compiling the imported functions
+                // 3. Linking them into the current module
+                
+                // For now, just skip imports in the compiler
+                eprintln!("Warning: Import statements are not yet supported in compiler mode");
+            }
         }
         
         Ok(())

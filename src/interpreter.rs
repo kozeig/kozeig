@@ -1,9 +1,11 @@
 use crate::lexer::{Lexer, TokenType};
 use crate::parser::{Expr, FunctionParam, Parser, Stmt};
 use crate::error_reporting::LutError;
+use crate::dependency_manager::DependencyManager;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufWriter, Write};
 use std::rc::Rc;
+use std::path::{Path, PathBuf};
 
 // Control flow handling
 #[derive(Debug, Clone, PartialEq)]
@@ -120,6 +122,10 @@ pub struct Interpreter {
     loop_counter: usize,
     // Function table to store defined functions
     functions: HashMap<String, Rc<Function>>,
+    // Dependency manager for imports
+    dependency_manager: Option<DependencyManager>,
+    // Path to the currently executing file
+    current_file_path: Option<PathBuf>,
 }
 
 // Use memory-efficient representation for values
@@ -210,6 +216,8 @@ impl Interpreter {
             output_buffer: Some(BufWriter::with_capacity(131072, io::stdout())), // Much larger buffer (128KB)
             loop_counter: 0,
             functions: HashMap::with_capacity(32), // Pre-allocate space for functions
+            dependency_manager: None,
+            current_file_path: None,
         }
     }
 
@@ -217,6 +225,17 @@ impl Interpreter {
         let mut interpreter = Self::new();
         interpreter.silent_mode = silent;
         interpreter
+    }
+    
+    pub fn set_current_file_path(&mut self, path: PathBuf) {
+        self.current_file_path = Some(path.clone());
+        
+        // If we have a dependency manager, update its current file directory
+        if let Some(ref mut dep_manager) = self.dependency_manager {
+            if let Some(parent) = path.parent() {
+                dep_manager.set_current_file_dir(parent.to_path_buf());
+            }
+        }
     }
 
     // Create a Text value with string interning
@@ -887,8 +906,52 @@ impl Interpreter {
                     }
                 }
             }
+            Stmt::Import { functions, module_path } => {
+                // Import the requested functions from the module
+                self.handle_import(functions, module_path)?;
+            }
         }
 
+        Ok(())
+    }
+    
+    // Handle import statements
+    fn handle_import(&mut self, functions: &[String], module_path: &str) -> Result<(), LutError> {
+        // Initialize dependency manager if needed
+        if self.dependency_manager.is_none() {
+            let cwd = std::env::current_dir()
+                .map_err(|e| LutError::runtime_error(format!("Failed to get current directory: {}", e), None))?;
+            let mut dep_manager = DependencyManager::new(cwd);
+            
+            // Set the current file directory if available
+            if let Some(ref file_path) = self.current_file_path {
+                if let Some(parent) = file_path.parent() {
+                    dep_manager.set_current_file_dir(parent.to_path_buf());
+                }
+            }
+            
+            self.dependency_manager = Some(dep_manager);
+        }
+        
+        // Resolve the import
+        let dependency_manager = self.dependency_manager.as_mut().unwrap();
+        let imported_functions = dependency_manager.resolve_import(functions, module_path)
+            .map_err(|e| LutError::runtime_error(format!("Import error: {}", e), None))?;
+            
+        // Register the imported functions
+        for imported_func in imported_functions {
+            let func = Function {
+                name: imported_func.name.clone(),
+                is_public: imported_func.is_public,
+                parameters: imported_func.parameters,
+                body: imported_func.body,
+            };
+            
+            let func_rc = Rc::new(func);
+            self.functions.insert(imported_func.name.clone(), Rc::clone(&func_rc));
+            self.environment.insert(imported_func.name.clone(), Value::Function(func_rc));
+        }
+        
         Ok(())
     }
 
@@ -2174,7 +2237,7 @@ impl Interpreter {
     }
 }
 
-pub fn run(source: &str) -> Result<(), LutError> {
+pub fn run(source: &str, file_path: Option<&Path>) -> Result<(), LutError> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -2182,6 +2245,9 @@ pub fn run(source: &str) -> Result<(), LutError> {
     let statements = parser.parse()?;
 
     let mut interpreter = Interpreter::new();
+    if let Some(path) = file_path {
+        interpreter.set_current_file_path(path.to_path_buf());
+    }
     interpreter.interpret(statements)?;
     
     // Try to find and call the main function after interpreting all statements
@@ -2196,7 +2262,7 @@ pub fn run(source: &str) -> Result<(), LutError> {
 }
 
 // Run with silent mode (no output), useful for benchmarking
-pub fn run_silent(source: &str) -> Result<(), LutError> {
+pub fn run_silent(source: &str, file_path: Option<&Path>) -> Result<(), LutError> {
     let mut lexer = Lexer::new(source);
     let tokens = lexer.scan_tokens()?;
 
@@ -2204,6 +2270,9 @@ pub fn run_silent(source: &str) -> Result<(), LutError> {
     let statements = parser.parse()?;
 
     let mut interpreter = Interpreter::with_silent_mode(true);
+    if let Some(path) = file_path {
+        interpreter.set_current_file_path(path.to_path_buf());
+    }
     interpreter.interpret(statements)?;
     
     // Try to find and call the main function after interpreting all statements

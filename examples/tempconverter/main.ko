@@ -1,0 +1,109 @@
+-- Temperature Converter Application
+-- Comprehensive example showcasing the Kozeig's use system
+
+-- Import temperature conversion functions from the library
+use { CelsiusToFahrenheit, FahrenheitToCelsius, CelsiusToKelvin, KelvinToCelsius } from './temp_lib.ko'
+use { FahrenheitToKelvin, KelvinToFahrenheit } from './temp_lib.ko'
+
+-- Import water state utilities
+use { GetWaterState, IsFreezingCelsius, IsBoilingCelsius } from './utils.ko'
+
+-- Local helper function to display all conversions
+func prot DisplayAllConversions { temp : number !, unit : text ! } [
+    -- Convert based on input unit
+    celsius : 0
+    fahrenheit : 0
+    kelvin : 0
+
+    -- Determine the base values
+    if { $unit == 'C' } [
+        celsius : $temp
+        fahrenheit : call { CelsiusToFahrenheit, $celsius }
+        kelvin : call { CelsiusToKelvin, $celsius }
+    ] else [
+        if { $unit == 'F' } [
+            fahrenheit : $temp
+            celsius : call { FahrenheitToCelsius, $fahrenheit }
+            kelvin : call { FahrenheitToKelvin, $fahrenheit }
+        ] else [
+            kelvin : $temp
+            celsius : call { KelvinToCelsius, $kelvin }
+            fahrenheit : call { KelvinToFahrenheit, $kelvin }
+        ]
+    ]
+
+    -- Display conversions
+    print { '  ', $celsius, '°C = ', $fahrenheit, '°F = ', $kelvin, '°K' }
+
+    -- Show water state at this temperature
+    state : call { GetWaterState, $celsius }
+    print { '  Water state: ', $state }
+]
+
+func pub main {} [
+    print { '===================================' }
+    print { '   Temperature Converter Example   ' }
+    print { '===================================' }
+    print { '' }
+
+    -- Section 1: Critical water temperatures
+    print { '1. Critical Water Temperatures:' }
+    print { '--------------------------------' }
+
+    print { 'Freezing point:' }
+    call { DisplayAllConversions, 0, 'C' }
+    print { '' }
+
+    print { 'Boiling point:' }
+    call { DisplayAllConversions, 100, 'C' }
+    print { '' }
+
+    -- Section 2: Common temperatures
+    print { '2. Common Temperatures:' }
+    print { '--------------------------------' }
+
+    print { 'Room temperature:' }
+    call { DisplayAllConversions, 20, 'C' }
+    print { '' }
+
+    print { 'Body temperature:' }
+    call { DisplayAllConversions, 98.6, 'F' }
+    print { '' }
+
+    print { 'Nice summer day:' }
+    call { DisplayAllConversions, 25, 'C' }
+    print { '' }
+
+    -- Section 3: Extreme temperatures
+    print { '3. Extreme Temperatures:' }
+    print { '--------------------------------' }
+
+    print { 'Absolute zero:' }
+    call { DisplayAllConversions, 0, 'K' }
+    print { '' }
+
+    print { 'Very cold day:' }
+    call { DisplayAllConversions, -40, 'C' }
+    print { '' }
+
+    print { 'Death Valley record:' }
+    call { DisplayAllConversions, 134, 'F' }
+    print { '' }
+
+    -- Section 4: Quick reference table
+    print { '4. Quick Reference:' }
+    print { '--------------------------------' }
+    print { 'Scale     Freeze    Boil     Human' }
+    print { 'Celsius      0      100       37' }
+    print { 'Fahrenheit  32      212     98.6' }
+    print { 'Kelvin     273      373      310' }
+    print { '' }
+
+    print { '===================================' }
+    print { 'This example demonstrates:' }
+    print { '- Importing multiple functions' }
+    print { '- Using functions from 2 libraries' }
+    print { '- Local and imported functions' }
+    print { '- Practical temperature conversions' }
+    print { '===================================' }
+]

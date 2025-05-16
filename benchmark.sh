@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Enhanced benchmark script for Lut language performance comparison
-# This script runs the benchmark.lut example with detailed performance metrics
+# Enhanced benchmark script for Kozeig language performance comparison
+# This script runs the benchmark.ko example with detailed performance metrics
 
-echo "Building Lut in release mode..."
+echo "Building Kozeig in release mode..."
 cargo build --release
 
 if [ -f benchmark_results.csv ]; then
@@ -34,61 +34,61 @@ run_benchmark() {
     if [[ "$(uname)" == "Darwin" ]]; then
         # macOS approach - use time's built-in output format with mach_absolute_time for more precision
         # and ps with a PID file to monitor the actual process
-        
+
         # Create a PID file to track the Lut process
         pid_file=$(mktemp)
-        
+
         # Start timing - macOS doesn't support %N in date, so we use perl for high precision
         start_time=$(perl -MTime::HiRes=time -e 'printf "%.6f", time')
-        
+
         # Run the command and save PID
-        (/usr/bin/time -p ./target/release/lut $mode ./examples/benchmark.lut > /dev/null 2> $temp_file & echo $! > $pid_file)
+        (/usr/bin/time -p ./target/release/koze $mode ./examples/benchmark.ko > /dev/null 2> $temp_file & echo $! > $pid_file)
         lut_pid=$(cat $pid_file)
-        
+
         # Monitor memory usage every 0.1 seconds
         max_memory=0
         max_cpu=0
-        
+
         # Keep monitoring until process completes
         while kill -0 $lut_pid 2>/dev/null; do
             # Get memory and CPU for the actual Lut process
             if ps -p $lut_pid >/dev/null 2>&1; then
                 current_mem=$(ps -o rss= -p $lut_pid | tr -d ' ')
                 current_cpu=$(ps -o %cpu= -p $lut_pid | tr -d ' ')
-                
+
                 # Update max values if higher
                 if [[ -n "$current_mem" && $current_mem -gt $max_memory ]]; then
                     max_memory=$current_mem
                 fi
-                
+
                 if [[ -n "$current_cpu" && $(echo "$current_cpu > $max_cpu" | bc -l) -eq 1 ]]; then
                     max_cpu=$current_cpu
                 fi
             fi
             sleep 0.1
         done
-        
+
         # Use the max values we collected
         memory=$max_memory
         cpu=$max_cpu
-        
+
         # Calculate elapsed time with high precision
         end_time=$(perl -MTime::HiRes=time -e 'printf "%.6f", time')
         real=$(echo "$end_time - $start_time" | bc)
-        
+
         # Extract user and sys time from time command output
         user=$(grep "user" $temp_file | awk '{print $2}')
         sys=$(grep "sys" $temp_file | awk '{print $2}')
-        
+
         # Clean up the PID file
         rm -f $pid_file
     else
         # Linux with GNU time approach
-        $TIME_CMD -f "%e,%U,%S,%M,%P" ./target/release/lut $mode ./examples/benchmark.lut > /dev/null 2> $temp_file
-        
+        $TIME_CMD -f "%e,%U,%S,%M,%P" ./target/release/koze $mode ./examples/benchmark.ko > /dev/null 2> $temp_file
+
         # Parse the metrics from the temp file
         metrics=$(cat $temp_file)
-        
+
         # Extract values
         real=$(echo "$metrics" | cut -d',' -f1)
         user=$(echo "$metrics" | cut -d',' -f2)

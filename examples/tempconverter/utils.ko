@@ -1,0 +1,41 @@
+-- Utility functions for the temperature converter
+-- Shows how libraries can use other libraries
+
+use { CelsiusToFahrenheit, FahrenheitToCelsius } from './temp_lib.lut'
+
+func pub IsFreezingCelsius { temp : number ! } [
+    -- Water freezes at 0°C
+    $temp <= 0
+]
+
+func pub IsFreezingFahrenheit { temp : number ! } [
+    -- Water freezes at 32°F
+    $temp <= 32
+]
+
+func pub IsBoilingCelsius { temp : number ! } [
+    -- Water boils at 100°C
+    $temp >= 100
+]
+
+func pub IsBoilingFahrenheit { temp : number ! } [
+    -- Water boils at 212°F
+    $temp >= 212
+]
+
+func pub GetWaterState { temp_c : number ! } [
+    -- Returns a text description of water state at given temperature
+    is_freezing : call { IsFreezingCelsius, $temp_c }
+    is_boiling : call { IsBoilingCelsius, $temp_c }
+
+    -- Nested if-else to determine state
+    if { $is_freezing } [
+        'Solid (Ice)'
+    ] else [
+        if { $is_boiling } [
+            'Gas (Steam)'
+        ] else [
+            'Liquid (Water)'
+        ]
+    ]
+]

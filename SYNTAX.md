@@ -1,16 +1,16 @@
-# Lüt Programming Language Syntax Guide
+# Kozeig Programming Language Syntax Guide
 
 ## Introduction
 
-Lüt is a simple, interpreted and compiled programming language with a focus on readability and straightforward syntax. The name "lüt" comes from "loot", reflecting the language's playful nature while taking inspiration from languages like C, C++, and Python, but with a consistent, unified syntax.
+Kozeig is a simple, interpreted and compiled programming language with a focus on readability and straightforward syntax. The name "lüt" comes from "loot", reflecting the language's playful nature while taking inspiration from languages like C, C++, and Python, but with a consistent, unified syntax.
 
 ## Basic Syntax Elements
 
 ### Functions
 
-Functions in Lüt are defined using the `func` keyword with a visibility modifier (`pub` or `prot`), followed by the function name, parameters in curly braces, and the function body in square brackets:
+Functions in Kozeig are defined using the `func` keyword with a visibility modifier (`pub` or `prot`), followed by the function name, parameters in curly braces, and the function body in square brackets:
 
-```lut
+```koze
 func pub|prot functionName { param1 : type !, param2 : type ! } [
     -- Function body statements
     -- The last expression is implicitly returned
@@ -19,12 +19,12 @@ func pub|prot functionName { param1 : type !, param2 : type ! } [
 
 ### Main Function
 
-The main function serves as the entry point to every Lüt program. It is a special function that takes no parameters and should return a value:
+The main function serves as the entry point to every Kozeig program. It is a special function that takes no parameters and should return a value:
 
-```lut
+```koze
 func pub main {} [
     -- Program statements
-    
+
     'ok'  -- Return value, similar to 'return 0' in C
 ]
 ```
@@ -39,19 +39,19 @@ The exclamation mark (`!`) after a parameter type indicates that the parameter i
 
 Functions are called using the `call` keyword:
 
-```lut
+```koze
 call { functionName, arg1, arg2 }
 ```
 
 You can assign the return value of a function to a variable:
 
-```lut
+```koze
 result : call { functionName, arg1, arg2 }
 ```
 
 Example of a simple function definition and call:
 
-```lut
+```koze
 -- Define a function to add two numbers
 func pub add { a : number !, b : number ! } [
     $a + $b  -- Last expression is returned
@@ -62,14 +62,14 @@ func pub main {} [
     -- Call the function and store the result
     sum : call { add, 5, 3 }
     print { 'Sum: ', $sum }  -- Outputs: Sum: 8
-    
+
     'ok'
 ]
 ```
 
 Functions can be recursive:
 
-```lut
+```koze
 -- Recursive factorial function
 func pub factorial { n : number ! } [
     if { $n <= 1 } [
@@ -82,16 +82,16 @@ func pub factorial { n : number ! } [
 -- Main entry point
 func pub main {} [
     print { 'Factorial of 5: ', call { factorial, 5 } }  -- Outputs: Factorial of 5: 120
-    
+
     'ok'
 ]
 ```
 
 ### Comments
 
-Comments in Lüt start with `--` and continue until the end of the line:
+Comments in Kozeig start with `--` and continue until the end of the line:
 
-```lut
+```koze
 -- This is a comment
 ```
 
@@ -99,20 +99,20 @@ Comments in Lüt start with `--` and continue until the end of the line:
 
 Variables are defined using a name followed by a colon and a value declaration with curly braces:
 
-```lut
+```koze
 variableName : { type value }
 ```
 
 For example:
 
-```lut
+```koze
 greeting : { text 'Hello World' }
 number : { number 42 }
 ```
 
 ### Data Types
 
-Lüt supports the following data types:
+Kozeig supports the following data types:
 
 1. **Numbers** - Integer values
    ```
@@ -165,7 +165,7 @@ Lüt supports the following data types:
 
    Boolean literals don't need a special command. You can just use `true` or `false` directly.
 
-   Truthy values in Lüt (values considered true in boolean context):
+   Truthy values in Kozeig (values considered true in boolean context):
    - Any non-zero number
    - Any non-empty string
    - The boolean literal `true`
@@ -185,7 +185,7 @@ print { $variableName }
 
 ## Commands
 
-Commands in Lüt use a name followed by arguments enclosed in curly braces:
+Commands in Kozeig use a name followed by arguments enclosed in curly braces:
 
 ### Print Command
 
@@ -245,7 +245,7 @@ value : { bin '0b1010' }  -- Converts to 10
 
 ### Arithmetic Operations
 
-Lüt supports standard arithmetic operators:
+Kozeig supports standard arithmetic operators:
 
 #### Addition
 
@@ -279,7 +279,7 @@ remainder : $a % $b
 
 ### Array Operations
 
-Lüt provides several commands for working with arrays:
+Kozeig provides several commands for working with arrays:
 
 #### Array Length
 
@@ -313,7 +313,7 @@ element : { get2d $matrix, 1, 2 }  -- Gets the element at row 1, column 2
 
 #### Compound Operations
 
-Lüt supports compound operations with proper operator precedence:
+Kozeig supports compound operations with proper operator precedence:
 
 ```
 result : $a + $b * $c
@@ -329,16 +329,16 @@ result : ($a + $b) * $c
 
 ## Statement Separators
 
-Statements in Lüt are typically separated by newlines. You can also use double semicolons (`;;`) to separate statements on the same line, which allows for compact one-liners:
+Statements in Kozeig are typically separated by newlines. You can also use double semicolons (`;;`) to separate statements on the same line, which allows for compact one-liners:
 
-```lut
+```koze
 -- Multiple statements on a single line
 name : { text 'John' } ;; age : { number 30 } ;; print { $name, ' is ', $age, ' years old' }
 ```
 
 The statement separator `;;` works at both the top level of your program and inside control block structures like if statements and loops:
 
-```lut
+```koze
 -- Statement separators inside control blocks
 for { i : 0, $i + 1, $i < 3 } [
     value : $i * 2 ;; print { 'i =', $i, 'value =', $value }
@@ -358,68 +358,68 @@ This feature allows for more compact code while maintaining readability.
 
 ### Hello World
 
-```lut
+```koze
 -- Simple Hello World program
 func pub main {} [
     greeting : { text 'Hello, World!' }
     print { $greeting }
-    
+
     'ok'
 ]
 ```
 
 ### Basic Arithmetic
 
-```lut
+```koze
 -- Simple arithmetic example
 func pub main {} [
     a : { number 5 }
     b : { number 10 }
-    
+
     -- Addition
     sum : $a + $b
     print { 'Sum: ', $sum }
-    
+
     -- Subtraction
     difference : $b - $a
     print { 'Difference: ', $difference }
-    
+
     -- Multiplication
     product : $a * $b
     print { 'Product: ', $product }
-    
+
     -- Division (includes runtime division-by-zero protection)
     quotient : $b / $a
     print { 'Quotient: ', $quotient }
-    
+
     -- Modulo (includes runtime modulo-by-zero protection)
     remainder : $b % $a
     print { 'Remainder: ', $remainder }
-    
+
     -- Compound operations with operator precedence
     compound1 : $a + $b * 2
     print { 'Compound (a + b * 2): ', $compound1 }  -- Multiplication happens first
-    
+
     -- Using parentheses to override precedence
     compound2 : ($a + $b) * 2
     print { 'Compound ((a + b) * 2): ', $compound2 }
-    
+
     -- Conditional logic with current syntax
     if { $a < $b } [
         print { '$a is less than $b' }
-    
+
         if { $a * 2 > $b } [
             print { 'But $a * 2 is greater than $b' }
         ]
     ]
-    
+
     'ok'
 ]
 ```
 
 ### ASCII Conversion
 
-```lut
+```koze
 -- ASCII conversion example
 func pub main {} [
     h : { asc 72 }
@@ -427,37 +427,37 @@ func pub main {} [
     l : { asc 108 }
     l2 : { asc 108 }
     o : { asc 111 }
-    
+
     print { $h, $e, $l, $l2, $o }  -- Prints "hello"
-    
+
     'ok'
 ]
 ```
 
 ## Identifiers and Naming Conventions
 
-Variable names in Lüt:
+Variable names in Kozeig:
 - Can contain alphanumeric characters and underscores
 - Must start with a letter
 - Are case-sensitive
 - Cannot be keywords
 
-## Running Lüt Programs
+## Running Kozeig Programs
 
 ### Interpretation
 
-Run a Lüt program directly:
+Run a Kozeig program directly:
 
 ```
-lut run yourprogram.lut
+koze run yourprogram.ko
 ```
 
 ### Compilation
 
-Compile a Lüt program to a standalone executable:
+Compile a Kozeig program to a standalone executable:
 
 ```
-lut build yourprogram.lut
+koze build yourprogram.ko
 ```
 
 This creates an executable file named after your program that can be run directly:
@@ -470,9 +470,9 @@ This creates an executable file named after your program that can be run directl
 
 ### If-Else Statements
 
-Lüt supports conditional execution with if-else statements:
+Kozeig supports conditional execution with if-else statements:
 
-```lut
+```koze
 if { <expression> } [
     @@ then branch statements
 ] else [
@@ -482,7 +482,7 @@ if { <expression> } [
 
 Example:
 
-```lut
+```koze
 age : { number 25 }
 
 if { $age >= 18 } [
@@ -496,7 +496,7 @@ If statements evaluate an expression, and if the expression is "truthy" (non-zer
 
 Nested if statements are also supported:
 
-```lut
+```koze
 score : { number 85 }
 
 if { $score >= 60 } [
@@ -514,7 +514,7 @@ if { $score >= 60 } [
 
 ### Comparison Operators
 
-Lüt supports the following comparison operators:
+Kozeig supports the following comparison operators:
 
 - `==` - Equal to
 - `!=` - Not equal to
@@ -525,7 +525,7 @@ Lüt supports the following comparison operators:
 
 Example:
 
-```lut
+```koze
 a : { number 10 }
 b : { number 20 }
 
@@ -542,7 +542,7 @@ if { $a == $b } [
 
 ### Logical Operators
 
-Lüt supports the following logical operators:
+Kozeig supports the following logical operators:
 
 - `&&` - Logical AND
 - `||` - Logical OR
@@ -550,7 +550,7 @@ Lüt supports the following logical operators:
 
 Example:
 
-```lut
+```koze
 a : { number 5 }
 b : { number 10 }
 
@@ -571,13 +571,13 @@ if { $in_range && !$out_of_range } [
 
 ### Loops
 
-Lüt provides two types of loops for iteration: while loops and for loops. Both use square brackets `[]` to denote the loop body.
+Kozeig provides two types of loops for iteration: while loops and for loops. Both use square brackets `[]` to denote the loop body.
 
 #### While Loops
 
 While loops execute a block of code as long as a condition is true:
 
-```lut
+```koze
 while { condition } [
     @@ loop body statements
     @@ Variable updates within loops work correctly in both interpreter and compiler
@@ -586,7 +586,7 @@ while { condition } [
 
 Example:
 
-```lut
+```koze
 counter : 0
 while { $counter < 5 } [
     print { 'Counter: ', $counter }
@@ -598,7 +598,7 @@ while { $counter < 5 } [
 
 For loops provide a more structured approach with initialization, update, and condition expressions:
 
-```lut
+```koze
 for { initialization, update, condition } [
     @@ loop body statements
     @@ Variable updates within loops work correctly in both interpreter and compiler
@@ -607,7 +607,7 @@ for { initialization, update, condition } [
 
 Example:
 
-```lut
+```koze
 @@ Count from 0 to 4
 for { i : 0, $i + 1, $i < 5 } [
     print { 'Index: ', $i }
@@ -626,13 +626,13 @@ The three expressions in a for loop are:
 
 #### Loop Control Statements
 
-Lüt provides two special statements to control loop execution:
+Kozeig provides two special statements to control loop execution:
 
 ##### Break Statement
 
 The `break` statement immediately exits a loop:
 
-```lut
+```koze
 count : 0
 while { true } [  @@ Infinite loop
     print { 'Count: ', $count }
@@ -648,7 +648,7 @@ while { true } [  @@ Infinite loop
 
 The `continue` statement skips the rest of the current iteration and jumps to the next iteration:
 
-```lut
+```koze
 for { i : 0, $i + 1, $i < 10 } [
     if { $i % 2 == 0 } [
         continue  @@ Skip even numbers
@@ -661,7 +661,7 @@ for { i : 0, $i + 1, $i < 10 } [
 
 Loops can be nested inside other loops:
 
-```lut
+```koze
 for { i : 0, $i + 1, $i < 3 } [
     for { j : 0, $j + 1, $j < 3 } [
         print { 'Position (', $i, ',', $j, ')' }
@@ -671,11 +671,11 @@ for { i : 0, $i + 1, $i < 3 } [
 
 ## Implementation Details
 
-Lüt is now implemented as a true compiler that uses LLVM through the Inkwell Rust bindings. This gives several advantages:
+Kozeig is now implemented as a true compiler that uses LLVM through the Inkwell Rust bindings. This gives several advantages:
 
-1. **Native Compilation**: Lüt programs are compiled directly to efficient native machine code without any intermediate language.
-2. **Just-In-Time (JIT) Execution**: The `lut jit` command compiles and immediately executes your program without creating an executable file.
-3. **Ahead-of-Time (AOT) Compilation**: The `lut build` command creates optimized standalone executables.
+1. **Native Compilation**: Kozeig programs are compiled directly to efficient native machine code without any intermediate language.
+2. **Just-In-Time (JIT) Execution**: The `koze jit` command compiles and immediately executes your program without creating an executable file.
+3. **Ahead-of-Time (AOT) Compilation**: The `koze build` command creates optimized standalone executables.
 4. **LLVM Optimizations**: Benefit from LLVM's powerful optimization passes for better performance.
 
 ### Safety Features
@@ -698,7 +698,7 @@ The compiler works by:
 
 ### Syntax Design Philosophy
 
-Lüt's syntax is designed around these principles:
+Kozeig's syntax is designed around these principles:
 
 1. **Consistency**: All code blocks use curly braces, making the structure immediately recognizable.
 2. **Clarity**: Commands and type operations use a consistent `name { arguments }` pattern.

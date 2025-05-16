@@ -1,18 +1,19 @@
-use std::fs;
 use std::env;
+use std::fs;
 use std::process;
 
+mod compiler;
+mod dependency_manager;
+mod error_reporting;
+mod interpreter;
 mod lexer;
 mod parser;
-mod interpreter;
-mod compiler;
-mod error_reporting;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: lut [build|run|jit|debug] <file> [-s|--silent]");
+        eprintln!("Usage: koze [build|run|jit|debug] <file> [-s|--silent]");
         eprintln!("  -s, --silent   Run in silent mode with minimal output");
         process::exit(1);
     }
@@ -22,11 +23,11 @@ fn main() {
     match command.as_str() {
         "debug" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut debug <file> [-s|--silent]");
+                eprintln!("Usage: koze debug <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
-            
+
             // Check for silent mode flag
             let silent_mode = args.iter().any(|arg| arg == "-s" || arg == "--silent");
 
@@ -52,35 +53,35 @@ fn main() {
                                             println!("{:#?}", stmt);
                                         }
                                     }
-                                },
+                                }
                                 Err(e) => {
                                     eprintln!("Parse error: {}", e);
                                     process::exit(1);
                                 }
                             }
-                        },
+                        }
                         Err(e) => {
                             eprintln!("Lexer error: {}", e);
                             process::exit(1);
                         }
                     }
-                },
+                }
                 Err(e) => {
                     eprintln!("Error reading file '{}': {}", file_path, e);
                     process::exit(1);
                 }
             }
-        },
+        }
         "build" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut build <file> [-s|--silent]");
+                eprintln!("Usage: koze build <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
-            
+
             // Check for silent mode flag
             let silent_mode = args.iter().any(|arg| arg == "-s" || arg == "--silent");
-            
+
             match fs::read_to_string(file_path) {
                 Ok(source) => {
                     match compiler::compile(&source, file_path, silent_mode) {
@@ -88,7 +89,7 @@ fn main() {
                             if !silent_mode {
                                 println!("Successfully compiled {}", file_path);
                             }
-                        },
+                        }
                         Err(e) => {
                             // Print enhanced error with source context
                             error_reporting::print_error_with_context(&e, &source);
@@ -104,7 +105,7 @@ fn main() {
         }
         "run" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut run <file> [-s|--silent]");
+                eprintln!("Usage: koze run <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
@@ -114,8 +115,9 @@ fn main() {
 
             match fs::read_to_string(file_path) {
                 Ok(source) => {
+                    let path = std::path::Path::new(file_path);
                     if silent_mode {
-                        match interpreter::run_silent(&source) {
+                        match interpreter::run_silent(&source, Some(path)) {
                             Ok(_) => (),
                             Err(e) => {
                                 // Print enhanced error with source context
@@ -124,7 +126,7 @@ fn main() {
                             }
                         }
                     } else {
-                        match interpreter::run(&source) {
+                        match interpreter::run(&source, Some(path)) {
                             Ok(_) => (),
                             Err(e) => {
                                 // Print enhanced error with source context
@@ -142,14 +144,14 @@ fn main() {
         }
         "jit" => {
             if args.len() < 3 {
-                eprintln!("Usage: lut jit <file> [-s|--silent]");
+                eprintln!("Usage: koze jit <file> [-s|--silent]");
                 process::exit(1);
             }
             let file_path = &args[2];
-            
+
             // Check for silent mode flag
             let silent_mode = args.iter().any(|arg| arg == "-s" || arg == "--silent");
-            
+
             match fs::read_to_string(file_path) {
                 Ok(source) => {
                     // Use the LLVM JIT compiler to compile and execute
@@ -170,7 +172,7 @@ fn main() {
         }
         _ => {
             eprintln!("Unknown command: {}", command);
-            eprintln!("Usage: lut [build|run|jit|debug] <file> [-s|--silent]");
+            eprintln!("Usage: koze [build|run|jit|debug] <file> [-s|--silent]");
             eprintln!("  -s, --silent   Run in silent mode with minimal output");
             process::exit(1);
         }

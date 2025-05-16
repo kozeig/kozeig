@@ -1,4 +1,4 @@
-# Lüt Language Changelog
+# Kozeig Language Changelog
 
 ## Version 0.5.0 - Function Support (Current)
 
@@ -49,7 +49,7 @@
 * **Number Type System**: Enhanced the type system to handle different number formats
 * **Parser Updates**: Updated parser to recognize new data types and array syntax
 * **Documentation**: Updated documentation to reflect new data types and syntax changes
-* **Example Files**: Added `arrays.lut` and one-liner examples to demonstrate new features
+* **Example Files**: Added `arrays.ko` and one-liner examples to demonstrate new features
 
 ## Version 0.3.0 - Loop Improvements & Bug Fixes
 
@@ -84,7 +84,7 @@
 
 * **Logical Operators**: Fully implemented `&&`, `||`, and `!` operators
 * **Ternary Expressions**: Added support for conditional expressions: `condition ? true_value : false_value`
-* **Debug Mode**: Added `lut debug filename.lut` command to show tokens and AST for development and learning
+* **Debug Mode**: Added `lut debug filename.ko` command to show tokens and AST for development and learning
 
 ### Implementation Details
 

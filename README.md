@@ -1,18 +1,18 @@
-# Lüt Programming Language
+# Kozeig
 
-![Lut](https://img.shields.io/badge/language-lut-blue)
+![Kozeig](https://img.shields.io/badge/language-kozeig-blue)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-Lüt (pronounced "loot" or "lewt") is a fun, simple programming language with a clean syntax designed for readability and ease of use. It's an experimental language under active development.
+Kozeig (pronounced "koh-sig") is a fun, quirky and simple programming language with bold opinions on its syntax and design. However, it's also a practical language that can be (in the near future) used for a wide range of applications.
 
 ## Project Status
 
 ⚠️
 
-Lüt is currently in early development. While the core features work, you may encounter bugs and limitations. The compiler and runtime are being actively improved.
+Kozeig is currently in early development. While the core features work, you may encounter bugs and limitations. The compiler and runtime are being actively improved.
 
-**Lüt is under active development and is open to community contributions in any form!**
+**Kozeig is under active development and is open to community contributions in any form!**
 
 See [Benchmarks](./BENCHMARKS.md) for more information on the current performance of the language.
 See [Changelog](./CHANGELOG.md) for a list of recent changes.
@@ -20,9 +20,9 @@ See [Changelog](./CHANGELOG.md) for a list of recent changes.
 ## Features
 
 - **Simple, Consistent Syntax**: Clean, unified syntax for all block constructs
-- **Compiled & Interpreted**: Run with `lut run` or compile with `lut build` designed to bridge the gap between languages like Python and C
+- **Compiled & Interpreted**: Run with `koze run` or compile with `koze build` designed to bridge the gap between languages like Python and C
 - **Native LLVM Compilation**: Generates optimized binaries using the LLVM compiler infrastructure
-- **JIT Execution**: Supports Just-In-Time compilation for quick testing with `lut jit` *Note: this feature is experimental and may be removed later depending on feedback, my own personal preference, or if it gets unecessarily difficult to maintain*
+- **JIT Execution**: Supports Just-In-Time compilation for quick testing with `koze jit` *Note: this feature is experimental and may be removed later depending on feedback, my own personal preference, or if it gets unecessarily difficult to maintain*
 - **Cross-Platform**: Produces standalone executables that work on multiple platforms
 - **Beginner-Friendly**: Ideal for learning programming concepts
 - **Logical Operators**: Full support for AND, OR, and NOT operations
@@ -31,12 +31,12 @@ See [Changelog](./CHANGELOG.md) for a list of recent changes.
 
 ## Installation
 
-Currently, you need to build Lüt from source:
+Currently, you need to build Kozeig from source:
 
 ```bash
 # Clone the repository
-git clone https://github.com/frgmt0/lut.git
-cd lut
+git clone https://github.com/kozeig/kozeig.git
+cd koze
 
 # Build with the automated script (it installs LLVM if needed)
 ./build.sh
@@ -46,7 +46,7 @@ cd lut
 
 ### Build Requirements
 
-Lüt requires the following dependencies:
+Kozeig requires the following dependencies:
 
 - Rust (latest stable version) - Install from [rust-lang.org](https://www.rust-lang.org/tools/install)
 - LLVM 16 - The build script will install this for you if needed
@@ -64,9 +64,9 @@ The `build.sh` script handles the following automatically:
    - On Linux: Uses apt to install LLVM 16 packages
    - On Windows: Provides instructions for manual installation
 4. Sets up the required environment variables in your shell profile
-5. Compiles Lüt with optimizations using `cargo build --release`
+5. Compiles Kozeig with optimizations using `cargo build --release`
 
-After running the build script, the compiler will be available at `./target/release/lut`.
+After running the build script, the compiler will be available at `./target/release/koze`.
 
 ### Manual Installation
 
@@ -78,7 +78,7 @@ If the build script doesn't work for your system, you can manually install the r
 
 ## Known Issues and Limitations
 
-Lüt is still in early development and has several known issues and limitations:
+Kozeig is still in early development and has several known issues and limitations:
 
 - Memory management for strings in compiled programs may cause issues in complex cases
 - Limited error reporting and debugging capabilities
@@ -117,12 +117,12 @@ If you encounter issues, please file a bug report so the community can investiga
 
 ### Hello World
 
-```lut
--- Hello World in Lut
+```koze
+-- Hello World in Kozeig
 func pub main {} [
     greeting : { text 'Hello, World!' }
     print { $greeting }
-    
+
     'ok'  -- Return value similar to 'return 0' in C
 ]
 ```
@@ -131,17 +131,17 @@ func pub main {} [
 
 ```bash
 # Interpret and run
-lut run hello.lut
+koze run hello.ko
 
 # Compile to executable
-lut build hello.lut
+koze build hello.ko
 ./hello
 
 # JIT compile and execute
-lut jit hello.lut
+koze jit hello.ko
 
 # Debug mode - show tokens and AST
-lut debug hello.lut
+koze debug hello.ko
 ```
 
 The debug mode is particularly useful for language development and understanding how the parser interprets your code. It displays:
@@ -150,7 +150,7 @@ The debug mode is particularly useful for language development and understanding
 
 ## Syntax Overview
 
-Lut has a simple, consistent syntax that's easy to learn:
+Kozeig has a simple, consistent syntax that's easy to learn:
 
 - **Comments** start with `--`
 - **Variables** are defined with `name : { type value }`
@@ -168,7 +168,7 @@ Lut has a simple, consistent syntax that's easy to learn:
 
 ### Functions
 
-```lut
+```koze
 -- Define a function to add two numbers
 func pub add { a : number !, b : number ! } [
     $a + $b  -- Last expression is returned
@@ -179,14 +179,14 @@ func pub main {} [
     -- Call the function
     result : call { add, 5, 7 }
     print { 'The sum is: ', $result }  -- Outputs: The sum is: 12
-    
+
     'ok'
 ]
 ```
 
 ### Arithmetic Operations
 
-```lut
+```koze
 a : { number 10 }
 b : { number 5 }
 
@@ -202,7 +202,7 @@ print { 'Product: ', $product }
 
 ### One-Liners with Statement Separators
 
-```lut
+```koze
 -- Multiple statements on one line using ;; separators
 x : 10 ;; y : 20 ;; print { 'Sum: ', $x + $y }
 
@@ -214,7 +214,7 @@ for { i : 0, $i + 1, $i < 3 } [
 
 ### ASCII Conversion
 
-```lut
+```koze
 char : { asc 65 }  -- Converts ASCII code 65 to 'A'
 print { $char }
 ```
@@ -256,7 +256,7 @@ For a complete syntax reference, see [SYNTAX.md](SYNTAX.md).
 
 ## Contributing
 
-Lüt is open to community contributions in any form! Whether you're fixing bugs, improving documentation, or adding features, your help is appreciated.
+Kozeig is open to community contributions in any form! Whether you're fixing bugs, improving documentation, or adding features, your help is appreciated.
 
 ### Ways to Contribute
 
@@ -276,12 +276,12 @@ If you find bugs or have suggestions, please open an issue on GitHub. Include:
 
 ## License
 
-Lüt is released under the MIT License. See the LICENSE file for details.
+Kozeig is released under the MIT License. See the LICENSE file for details.
 
 ## Acknowledgments
 
-Lüt was inspired by languages like Python, Lua, and Rust, with a goal of creating a simple, fun language for learning and experimenting.
+Kozeig was inspired by languages like Python, Lua, and Rust, with a goal of creating a simple, fun language for learning and experimenting.
 
 ---
 
-Happy coding with Lüt!
+Happy coding with Kozeig!

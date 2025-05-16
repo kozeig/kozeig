@@ -1,9 +1,13 @@
 [package]
-name = "lut"
+name = "kozeig"
 version = "0.5.0"
 edition = "2021"
 authors = ["Jason Weiss <jason.awz2005@icloud.com>"]
-description = "A fun programming language called 'lut'"
+description = "Just a quirky little language with a lot of bold opinions"
+
+[[bin]]
+name = "koze"
+path = "src/main.rs"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

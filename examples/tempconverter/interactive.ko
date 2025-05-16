@@ -1,0 +1,51 @@
+-- Interactive Temperature Converter
+-- Demonstrates more complex usage with temperature conversions
+
+use { CelsiusToFahrenheit, FahrenheitToCelsius, CelsiusToKelvin } from ./temp_lib.ko
+use { KelvinToCelsius, FahrenheitToKelvin, KelvinToFahrenheit } from ./temp_lib.ko
+
+-- Convert a temperature to all other units
+func prot ConvertFromCelsius { celsius : number ! } [
+    fahrenheit : call { CelsiusToFahrenheit, $celsius }
+    kelvin : call { CelsiusToKelvin, $celsius }
+
+    print { 'From ', $celsius, '°C:' }
+    print { '  → ', $fahrenheit, '°F' }
+    print { '  → ', $kelvin, '°K' }
+]
+
+func prot ConvertFromFahrenheit { fahrenheit : number ! } [
+    celsius : call { FahrenheitToCelsius, $fahrenheit }
+    kelvin : call { FahrenheitToKelvin, $fahrenheit }
+
+    print { 'From ', $fahrenheit, '°F:' }
+    print { '  → ', $celsius, '°C' }
+    print { '  → ', $kelvin, '°K' }
+]
+
+func prot ConvertFromKelvin { kelvin : number ! } [
+    celsius : call { KelvinToCelsius, $kelvin }
+    fahrenheit : call { KelvinToFahrenheit, $kelvin }
+
+    print { 'From ', $kelvin, '°K:' }
+    print { '  → ', $celsius, '°C' }
+    print { '  → ', $fahrenheit, '°F' }
+]
+
+func pub main {} [
+    print { '=== Interactive Temperature Converter ===' }
+    print { '' }
+
+    -- Convert some common temperatures
+    print { 'Common temperature conversions:' }
+    print { '' }
+
+    call { ConvertFromCelsius, 25 }  -- Nice summer day
+    print { '' }
+
+    call { ConvertFromFahrenheit, 72 }  -- Room temperature (US)
+    print { '' }
+
+    call { ConvertFromKelvin, 300 }  -- Roughly room temperature
+    print { '' }
+]

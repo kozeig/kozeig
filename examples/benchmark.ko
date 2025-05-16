@@ -1,7 +1,7 @@
 -- Benchmark for factorial computation
 -- This will test recursive function calls with more intensive computation
 
--- Recursive factorial function (same as in factorial.lut)
+-- Recursive factorial function (same as in factorial.ko)
 func pub factorial { n : number ! } [
     -- Base case: 0! and 1! are both 1
     if { $n <= 1 } [

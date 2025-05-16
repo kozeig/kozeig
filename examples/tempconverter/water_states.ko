@@ -1,0 +1,30 @@
+-- Water State Analyzer
+-- Demonstrates nested imports and utility functions
+
+use { CelsiusToFahrenheit } from ./temp_lib.lut
+use { GetWaterState, IsFreezingCelsius, IsBoilingCelsius } from ./utils.lut
+
+func pub main {} [
+    print { '=== Water State Analyzer ===' }
+    print { '' }
+
+    -- Test various temperatures
+    test_temps : [ -10, 0, 25, 50, 75, 100, 120 ]
+
+    -- Check water state at each temperature
+    i : 0
+    while { $i < 7 } [
+        temp : $test_temps[$i]
+        state : call { GetWaterState, $temp }
+        temp_f : call { CelsiusToFahrenheit, $temp }
+
+        print { 'At ', $temp, '°C (', $temp_f, '°F): ', $state }
+
+        i : $i + 1
+    ]
+
+    print { '' }
+    print { 'Critical points:' }
+    print { 'Freezing: 0°C (32°F)' }
+    print { 'Boiling: 100°C (212°F)' }
+]

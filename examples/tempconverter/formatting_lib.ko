@@ -1,0 +1,26 @@
+-- Formatting utilities for temperature display
+-- Provides nice formatted output for temperature values
+
+func pub FormatTemperature { value : number !, unit : text ! } [
+    -- Return a single text element by creating temp variables
+    value_text : call { text, $value }
+    degree : '°'
+    
+    -- Concatenate and return as single value
+    result : $value_text
+    result2 : $result, $degree
+    result3 : $result2, $unit
+    $result3
+]
+
+func pub FormatConversion { from_value : number !, from_unit : text !, to_value : number !, to_unit : text ! } [
+    -- Format both temperatures
+    from_formatted : call { FormatTemperature, $from_value, $from_unit }
+    to_formatted : call { FormatTemperature, $to_value, $to_unit }
+    
+    -- Return the complete conversion string
+    part1 : $from_formatted
+    part2 : $part1, ' = '
+    part3 : $part2, $to_formatted
+    $part3
+]
