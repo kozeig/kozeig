@@ -179,8 +179,15 @@ done
 
 echo "Enhanced summary statistics saved to benchmark_summary.csv"
 
-# Run the Python visualization script if it exists
-if [ -f "benchmark.py" ]; then
-    echo "Generating visualization..."
-    python3 benchmark.py
+# Run the Rust visualization if the binary exists
+if [ -f "./target/release/benchmark" ]; then
+    echo "Generating visualization using Rust benchmark tool..."
+    ./target/release/benchmark
+else
+    echo "Building Rust benchmark tool..."
+    cargo build --release --bin benchmark
+    if [ -f "./target/release/benchmark" ]; then
+        echo "Generating visualization using Rust benchmark tool..."
+        ./target/release/benchmark
+    fi
 fi
