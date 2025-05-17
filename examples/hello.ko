@@ -1,0 +1,6 @@
+-- use [print] from '../libraries/core/io.ko'
+
+func pub main [ ] {
+    print [ 'Hello, World!' ]
+    'ok'
+}

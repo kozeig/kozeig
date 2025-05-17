@@ -208,19 +208,19 @@ impl Lexer {
             )),
             '{' => self
                 .tokens
-                .push(Token::new(TokenType::LeftBrace, "{".to_string(), self.line)),
+                .push(Token::new(TokenType::LeftBracket, "{".to_string(), self.line)),
             '}' => self.tokens.push(Token::new(
-                TokenType::RightBrace,
+                TokenType::RightBracket,
                 "}".to_string(),
                 self.line,
             )),
             '[' => self.tokens.push(Token::new(
-                TokenType::LeftBracket,
+                TokenType::LeftBrace,
                 "[".to_string(),
                 self.line,
             )),
             ']' => self.tokens.push(Token::new(
-                TokenType::RightBracket,
+                TokenType::RightBrace,
                 "]".to_string(),
                 self.line,
             )),
